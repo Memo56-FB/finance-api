@@ -46,6 +46,7 @@ class SecurityConfiguration {
                 .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/auth/register").permitAll()
                         .anyRequest().authenticated())
                 .requestCache(AbstractHttpConfigurer::disable)
                 // shortcut: Add login throttling at the ingress before exposing this local scaffold publicly.
