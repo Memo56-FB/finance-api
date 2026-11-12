@@ -1,6 +1,10 @@
 package dev.memofb.finance.auth;
 
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,18 +14,22 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.JdbcUserDetailsManager;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
@@ -55,12 +63,174 @@ class AuthFlowTest {
     @Autowired
     private PasswordEncoder passwords;
 
+    @Autowired
+    private RegistrationService registration;
+
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    private static final String REGISTER_EMAIL = "maria@example.com";
+
     @BeforeEach
     void createUserInPostgres() {
+        users.deleteUser(REGISTER_EMAIL);
         if (users.userExists(EMAIL)) {
             users.deleteUser(EMAIL);
         }
         users.createUser(User.withUsername(EMAIL).password(passwords.encode(PASSWORD)).roles("USER").build());
+    }
+
+    @Test
+    void persistsTheRegisteredUserWithNameHashAndOneAuthority() {
+        var created = registration.register(new RegistrationRequest("  María José  ", "  MARIA@EXAMPLE.COM  ", "abcdefgh"));
+
+        assertThat(created).isEqualTo(new RegistrationService.RegisteredUser("María José", REGISTER_EMAIL));
+        var user = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL);
+        assertThat(user).containsEntry("name", "María José").containsEntry("enabled", true);
+        assertThat(user.get("password")).isNotEqualTo("abcdefgh");
+        assertThat(passwords.matches("abcdefgh", (String) user.get("password"))).isTrue();
+        assertThat(jdbc.queryForList("SELECT authority FROM authorities WHERE username = ?",
+                String.class, REGISTER_EMAIL)).containsExactly("ROLE_USER");
+    }
+
+    @Test
+    void duplicatesNeverOverwriteExistingOrDisabledAccounts() {
+        registration.register(new RegistrationRequest("María", REGISTER_EMAIL, "abcdefgh"));
+        for (boolean enabled : new boolean[] {true, false}) {
+            jdbc.update("UPDATE users SET enabled = ? WHERE username = ?", enabled, REGISTER_EMAIL);
+            var before = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL);
+            var authorities = jdbc.queryForList("SELECT * FROM authorities WHERE username = ?", REGISTER_EMAIL);
+            for (String email : new String[] {REGISTER_EMAIL, "  MARIA@EXAMPLE.COM  "}) {
+                assertThatThrownBy(() -> registration.register(new RegistrationRequest("Otra", email, "new-password")))
+                        .isInstanceOf(RegistrationService.EmailAlreadyRegisteredException.class);
+                assertThat(jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL)).isEqualTo(before);
+                assertThat(jdbc.queryForList("SELECT * FROM authorities WHERE username = ?", REGISTER_EMAIL))
+                        .isEqualTo(authorities);
+            }
+        }
+    }
+
+    @Test
+    void rollsBackUserAndAuthorityIfSavingTheNameFails() {
+        jdbc.execute("ALTER TABLE users ADD CONSTRAINT test_name_failure CHECK (name IS DISTINCT FROM '__fail__')");
+        try {
+            assertThatThrownBy(() -> registration.register(new RegistrationRequest("__fail__", REGISTER_EMAIL, "abcdefgh")))
+                    .isInstanceOf(DataIntegrityViolationException.class)
+                    .isNotInstanceOf(RegistrationService.EmailAlreadyRegisteredException.class);
+            assertThat(users.userExists(REGISTER_EMAIL)).isFalse();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM authorities WHERE username = ?",
+                    Long.class, REGISTER_EMAIL)).isZero();
+        } finally {
+            jdbc.execute("ALTER TABLE users DROP CONSTRAINT test_name_failure");
+        }
+    }
+
+    @Test
+    void registersWithRealCsrfThenLogsInWithAnEightCharacterPassword() throws Exception {
+        var browser = anonymousSession();
+        register(browser, "  María José O'Neill  ", "  MARIA@EXAMPLE.COM  ", "abcdefgh")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("María José O'Neill"))
+                .andExpect(jsonPath("$.email").value(REGISTER_EMAIL))
+                .andExpect(jsonPath("$.password").doesNotExist());
+        assertThat(jdbc.queryForObject("SELECT name FROM users WHERE username = ?", String.class, REGISTER_EMAIL))
+                .isEqualTo("María José O'Neill");
+        mvc.perform(get("/api/auth/me").session(browser.session())).andExpect(status().isUnauthorized());
+
+        mvc.perform(post("/api/auth/login").session(browser.session())
+                        .header("X-CSRF-TOKEN", browser.token())
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("email", "MARIA@EXAMPLE.COM").param("password", "abcdefgh"))
+                .andExpect(status().isNoContent());
+        var me = mvc.perform(get("/api/auth/me").session(browser.session()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(REGISTER_EMAIL)).andReturn();
+        assertThat(json.readTree(me.getResponse().getContentAsString()).size()).isEqualTo(1);
+    }
+
+    @Test
+    void preservesSignificantSpacesInPasswords() throws Exception {
+        var browser = anonymousSession();
+        register(browser, "María", REGISTER_EMAIL, "  abcdefgh  ").andExpect(status().isCreated());
+        mvc.perform(post("/api/auth/login").session(browser.session())
+                        .header("X-CSRF-TOKEN", browser.token())
+                        .param("email", REGISTER_EMAIL).param("password", "abcdefgh"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/auth/login").session(browser.session())
+                        .header("X-CSRF-TOKEN", browser.token())
+                        .param("email", REGISTER_EMAIL).param("password", "  abcdefgh  "))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void rejectsRegistrationWithoutAValidCsrfTokenAndDoesNotPersist() throws Exception {
+        var body = json.writeValueAsString(Map.of("name", "María", "email", REGISTER_EMAIL, "password", "abcdefgh"));
+        mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        assertThat(users.userExists(REGISTER_EMAIL)).isFalse();
+        mvc.perform(post("/api/auth/register").with(csrf().useInvalidToken())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        assertThat(users.userExists(REGISTER_EMAIL)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM authorities WHERE username = ?", Long.class, REGISTER_EMAIL))
+                .isZero();
+    }
+
+    @Test
+    void permitsRegistrationPreflightOnlyForTheConfiguredOrigin() throws Exception {
+        mvc.perform(options("/api/auth/register")
+                        .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type,x-csrf-token"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+        mvc.perform(options("/api/auth/register")
+                        .header(HttpHeaders.ORIGIN, "https://untrusted.example")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void concurrentRegistrationsCreateOnlyOneCompleteAccount() throws Exception {
+        var firstBrowser = anonymousSession();
+        var secondBrowser = anonymousSession();
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var first = executor.submit(() -> {
+                ready.countDown();
+                assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+                return register(firstBrowser, "Primera", REGISTER_EMAIL, "first-password")
+                        .andReturn().getResponse().getStatus();
+            });
+            var second = executor.submit(() -> {
+                ready.countDown();
+                assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+                return register(secondBrowser, "Segunda", "  MARIA@EXAMPLE.COM  ", "second-password")
+                        .andReturn().getResponse().getStatus();
+            });
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            var firstStatus = first.get(20, TimeUnit.SECONDS);
+            var secondStatus = second.get(20, TimeUnit.SECONDS);
+            assertThat(new int[] {firstStatus, secondStatus}).containsExactlyInAnyOrder(201, 409);
+
+            var account = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL);
+            assertThat(account).containsEntry("name", firstStatus == 201 ? "Primera" : "Segunda")
+                    .containsEntry("enabled", true);
+            var hash = (String) account.get("password");
+            assertThat(passwords.matches(firstStatus == 201 ? "first-password" : "second-password", hash)).isTrue();
+            assertThat(passwords.matches(firstStatus == 201 ? "second-password" : "first-password", hash)).isFalse();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?", Long.class, REGISTER_EMAIL))
+                    .isEqualTo(1);
+            assertThat(jdbc.queryForList("SELECT authority FROM authorities WHERE username = ?", String.class, REGISTER_EMAIL))
+                    .containsExactly("ROLE_USER");
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -159,5 +329,20 @@ class AuthFlowTest {
                         .header(HttpHeaders.ORIGIN, "https://untrusted.example")
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST"))
                 .andExpect(status().isForbidden());
+    }
+
+    private CsrfSession anonymousSession() throws Exception {
+        var result = mvc.perform(get("/api/auth/csrf")).andExpect(status().isOk()).andReturn();
+        return new CsrfSession((MockHttpSession) result.getRequest().getSession(false),
+                json.readTree(result.getResponse().getContentAsString()).get("token").asText());
+    }
+
+    private ResultActions register(CsrfSession browser, String name, String email, String password) throws Exception {
+        return mvc.perform(post("/api/auth/register").session(browser.session())
+                .header("X-CSRF-TOKEN", browser.token()).contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("name", name, "email", email, "password", password))));
+    }
+
+    private record CsrfSession(MockHttpSession session, String token) {
     }
 }
