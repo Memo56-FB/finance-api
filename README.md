@@ -23,14 +23,15 @@ docker compose up -d --wait
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
-La API escucha en `http://localhost:8080`. Flyway crea las tablas `users` y `authorities` al iniciar.
-La migración V2 agrega el nombre del usuario. Las cuentas anteriores y el usuario inicial local pueden
+La API escucha en `http://localhost:8080`. Flyway prepara la tabla `users` al iniciar.
+La migración V2 agrega el nombre del usuario y V3 elimina la antigua tabla `authorities`, conservando
+las cuentas y sus credenciales. La autenticación no usa roles ni permisos. Las cuentas anteriores y el usuario inicial local pueden
 conservar el nombre vacío (`NULL`); el endpoint de registro exige un nombre para las cuentas nuevas.
 El perfil `local` crea el primer usuario si todavía no existe; reiniciar no cambia su contraseña.
 Ese perfil permite cookies por HTTP y solo escucha en la interfaz local.
 Fuera de `local`, las cookies requieren HTTPS y no se crea ningún usuario automáticamente.
 
-Spring Security proporciona el almacenamiento JDBC y el flujo de autenticación. Las funcionalidades nuevas irán
+Un `UserDetailsService` consulta las credenciales en PostgreSQL mediante JDBC y Spring Security proporciona el flujo de autenticación. Las funcionalidades nuevas irán
 en paquetes hermanos de `auth`, dentro de `dev.memofb.finance`, según se necesiten.
 
 ## Contrato de autenticación
@@ -60,8 +61,8 @@ Los datos inválidos o un cuerpo JSON ilegible devuelven `400`; un email ya regi
 deshabilitada, devuelve `409` y conserva la cuenta existente. Ambos usan `application/problem+json` con `status`,
 `title` y `detail`. Los errores de validación incluyen `errors`, por ejemplo
 `[{ "field": "password", "message": "La contraseña debe tener al menos 8 caracteres" }]`, sin repetir el valor
-rechazado. El registro también devuelve `403` si falta CSRF o es inválido. La cuenta, su nombre y su rol se
-guardan en una sola transacción; la contraseña se guarda con el codificador BCrypt existente.
+rechazado. El registro también devuelve `403` si falta CSRF o es inválido. La cuenta y su nombre se
+guardan con un único `INSERT` atómico; la contraseña se guarda con el codificador BCrypt existente.
 
 El frontend debe usar `credentials: 'include'` en todas las llamadas y obtener un nuevo token CSRF después del
 login o logout. CORS permite únicamente `http://localhost:3000`; usa `FINANCE_FRONTEND_ORIGIN` si cambia ese origen.

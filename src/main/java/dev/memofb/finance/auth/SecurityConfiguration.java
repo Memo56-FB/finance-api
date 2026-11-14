@@ -2,19 +2,20 @@ package dev.memofb.finance.auth;
 
 import java.util.List;
 
-import javax.sql.DataSource;
-
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.provisioning.JdbcUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.web.cors.CorsConfiguration;
@@ -25,13 +26,14 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 class SecurityConfiguration {
 
     @Bean
-    JdbcUserDetailsManager users(DataSource dataSource) {
-        var users = new JdbcUserDetailsManager(dataSource);
-        users.setUsersByUsernameQuery(
-                "SELECT username, password, enabled FROM users WHERE username = lower(?)");
-        users.setAuthoritiesByUsernameQuery(
-                "SELECT username, authority FROM authorities WHERE username = lower(?)");
-        return users;
+    UserDetailsService users(JdbcTemplate jdbc) {
+        return email -> jdbc.query("SELECT username, password, enabled FROM users WHERE username = lower(?)",
+                (row, index) -> User.withUsername(row.getString("username"))
+                        .password(row.getString("password"))
+                        .disabled(!row.getBoolean("enabled"))
+                        .authorities(List.of())
+                        .build(), email).stream().findFirst()
+                .orElseThrow(() -> new UsernameNotFoundException("Invalid credentials"));
     }
 
     @Bean

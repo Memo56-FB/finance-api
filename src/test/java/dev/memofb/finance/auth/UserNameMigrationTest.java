@@ -18,7 +18,7 @@ class UserNameMigrationTest {
     static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18-alpine");
 
     @Test
-    void preservesExistingAccountsWhenAddingNames() {
+    void preservesExistingAccountsWhenAddingNamesAndRemovingAuthorities() {
         var dataSource = new DriverManagerDataSource(
                 postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
         Flyway.configure().dataSource(dataSource).schemas("legacy").defaultSchema("legacy")
@@ -32,7 +32,7 @@ class UserNameMigrationTest {
                 "legacy@example.com", "ROLE_USER");
 
         Flyway.configure().dataSource(dataSource).schemas("legacy").defaultSchema("legacy")
-                .load().migrate();
+                .target("2").load().migrate();
 
         var user = jdbc.queryForMap("SELECT * FROM legacy.users WHERE username = ?", "legacy@example.com");
         assertThat(user).containsEntry("username", "legacy@example.com")
@@ -40,5 +40,22 @@ class UserNameMigrationTest {
         assertThat(passwords.matches("migration-test-passphrase", (String) user.get("password"))).isTrue();
         assertThat(jdbc.queryForList("SELECT authority FROM legacy.authorities WHERE username = ?",
                 String.class, "legacy@example.com")).containsExactly("ROLE_USER");
+        jdbc.update("INSERT INTO legacy.users (username, password, enabled, name) VALUES (?, ?, false, ?)",
+                "disabled@example.com", hash, "Nombre existente");
+        var disabled = jdbc.queryForMap("SELECT * FROM legacy.users WHERE username = ?", "disabled@example.com");
+
+        Flyway.configure().dataSource(dataSource).schemas("legacy").defaultSchema("legacy")
+                .load().migrate();
+
+        assertThat(jdbc.queryForObject("SELECT to_regclass('legacy.authorities')", String.class)).isNull();
+        assertThat(jdbc.queryForMap("SELECT * FROM legacy.users WHERE username = ?", "legacy@example.com"))
+                .isEqualTo(user);
+        assertThat(jdbc.queryForMap("SELECT * FROM legacy.users WHERE username = ?", "disabled@example.com"))
+                .isEqualTo(disabled);
+        dataSource.setSchema("legacy");
+        var migrated = new SecurityConfiguration().users(jdbc).loadUserByUsername("LEGACY@EXAMPLE.COM");
+        assertThat(migrated.isEnabled()).isTrue();
+        assertThat(migrated.getAuthorities()).isEmpty();
+        assertThat(passwords.matches("migration-test-passphrase", migrated.getPassword())).isTrue();
     }
 }

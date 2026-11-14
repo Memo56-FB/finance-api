@@ -17,9 +17,8 @@ import org.springframework.http.MediaType;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
-import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.provisioning.JdbcUserDetailsManager;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -58,7 +57,7 @@ class AuthFlowTest {
     private JsonMapper json;
 
     @Autowired
-    private JdbcUserDetailsManager users;
+    private UserDetailsService users;
 
     @Autowired
     private PasswordEncoder passwords;
@@ -73,15 +72,12 @@ class AuthFlowTest {
 
     @BeforeEach
     void createUserInPostgres() {
-        users.deleteUser(REGISTER_EMAIL);
-        if (users.userExists(EMAIL)) {
-            users.deleteUser(EMAIL);
-        }
-        users.createUser(User.withUsername(EMAIL).password(passwords.encode(PASSWORD)).roles("USER").build());
+        jdbc.update("DELETE FROM users WHERE username IN (?, ?)", REGISTER_EMAIL, EMAIL);
+        jdbc.update("INSERT INTO users (username, password, enabled) VALUES (?, ?, true)", EMAIL, passwords.encode(PASSWORD));
     }
 
     @Test
-    void persistsTheRegisteredUserWithNameHashAndOneAuthority() {
+    void persistsTheRegisteredUserWithNameAndHashWithoutRoles() {
         var created = registration.register(new RegistrationRequest("  María José  ", "  MARIA@EXAMPLE.COM  ", "abcdefgh"));
 
         assertThat(created).isEqualTo(new RegistrationService.RegisteredUser("María José", REGISTER_EMAIL));
@@ -89,8 +85,30 @@ class AuthFlowTest {
         assertThat(user).containsEntry("name", "María José").containsEntry("enabled", true);
         assertThat(user.get("password")).isNotEqualTo("abcdefgh");
         assertThat(passwords.matches("abcdefgh", (String) user.get("password"))).isTrue();
-        assertThat(jdbc.queryForList("SELECT authority FROM authorities WHERE username = ?",
-                String.class, REGISTER_EMAIL)).containsExactly("ROLE_USER");
+        assertThat(users.loadUserByUsername(REGISTER_EMAIL).getAuthorities()).isEmpty();
+    }
+
+    @Test
+    void createsTheLocalUserWithoutRolesAndKeepsItsPasswordOnRestart() throws Exception {
+        var configuration = new LocalUserConfiguration();
+        configuration.localUser(jdbc, passwords, "  MARIA@EXAMPLE.COM  ", "local-test-passphrase").run(null);
+        var before = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL);
+        assertThat(before).containsEntry("name", null).containsEntry("enabled", true);
+        assertThat(passwords.matches("local-test-passphrase", (String) before.get("password"))).isTrue();
+        assertThat(users.loadUserByUsername(REGISTER_EMAIL).getAuthorities()).isEmpty();
+
+        configuration.localUser(jdbc, passwords, REGISTER_EMAIL, "different-passphrase").run(null);
+        assertThat(jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL)).isEqualTo(before);
+    }
+
+    @Test
+    void localBootstrapDoesNotChangeAnExistingDisabledAccount() throws Exception {
+        jdbc.update("UPDATE users SET name = ?, enabled = false WHERE username = ?", "Memo", EMAIL);
+        var before = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", EMAIL);
+
+        new LocalUserConfiguration().localUser(jdbc, passwords, EMAIL, "different-passphrase").run(null);
+
+        assertThat(jdbc.queryForMap("SELECT * FROM users WHERE username = ?", EMAIL)).isEqualTo(before);
     }
 
     @Test
@@ -99,26 +117,22 @@ class AuthFlowTest {
         for (boolean enabled : new boolean[] {true, false}) {
             jdbc.update("UPDATE users SET enabled = ? WHERE username = ?", enabled, REGISTER_EMAIL);
             var before = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL);
-            var authorities = jdbc.queryForList("SELECT * FROM authorities WHERE username = ?", REGISTER_EMAIL);
             for (String email : new String[] {REGISTER_EMAIL, "  MARIA@EXAMPLE.COM  "}) {
                 assertThatThrownBy(() -> registration.register(new RegistrationRequest("Otra", email, "new-password")))
                         .isInstanceOf(RegistrationService.EmailAlreadyRegisteredException.class);
                 assertThat(jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL)).isEqualTo(before);
-                assertThat(jdbc.queryForList("SELECT * FROM authorities WHERE username = ?", REGISTER_EMAIL))
-                        .isEqualTo(authorities);
             }
         }
     }
 
     @Test
-    void rollsBackUserAndAuthorityIfSavingTheNameFails() {
+    void leavesNoAccountIfSavingTheNameFails() {
         jdbc.execute("ALTER TABLE users ADD CONSTRAINT test_name_failure CHECK (name IS DISTINCT FROM '__fail__')");
         try {
             assertThatThrownBy(() -> registration.register(new RegistrationRequest("__fail__", REGISTER_EMAIL, "abcdefgh")))
                     .isInstanceOf(DataIntegrityViolationException.class)
                     .isNotInstanceOf(RegistrationService.EmailAlreadyRegisteredException.class);
-            assertThat(users.userExists(REGISTER_EMAIL)).isFalse();
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM authorities WHERE username = ?",
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?",
                     Long.class, REGISTER_EMAIL)).isZero();
         } finally {
             jdbc.execute("ALTER TABLE users DROP CONSTRAINT test_name_failure");
@@ -167,12 +181,11 @@ class AuthFlowTest {
         var body = json.writeValueAsString(Map.of("name", "María", "email", REGISTER_EMAIL, "password", "abcdefgh"));
         mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isForbidden());
-        assertThat(users.userExists(REGISTER_EMAIL)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?", Long.class, REGISTER_EMAIL)).isZero();
         mvc.perform(post("/api/auth/register").with(csrf().useInvalidToken())
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isForbidden());
-        assertThat(users.userExists(REGISTER_EMAIL)).isFalse();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM authorities WHERE username = ?", Long.class, REGISTER_EMAIL))
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?", Long.class, REGISTER_EMAIL))
                 .isZero();
     }
 
@@ -225,8 +238,6 @@ class AuthFlowTest {
             assertThat(passwords.matches(firstStatus == 201 ? "second-password" : "first-password", hash)).isFalse();
             assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?", Long.class, REGISTER_EMAIL))
                     .isEqualTo(1);
-            assertThat(jdbc.queryForList("SELECT authority FROM authorities WHERE username = ?", String.class, REGISTER_EMAIL))
-                    .containsExactly("ROLE_USER");
         } finally {
             start.countDown();
             executor.shutdownNow();
@@ -301,7 +312,7 @@ class AuthFlowTest {
 
     @Test
     void rejectsDisabledAccounts() throws Exception {
-        users.updateUser(User.withUserDetails(users.loadUserByUsername(EMAIL)).disabled(true).build());
+        jdbc.update("UPDATE users SET enabled = false WHERE username = ?", EMAIL);
         mvc.perform(post("/api/auth/login").with(csrf())
                         .param("email", EMAIL).param("password", PASSWORD))
                 .andExpect(status().isUnauthorized());
