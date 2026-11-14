@@ -34,6 +34,31 @@ Fuera de `local`, las cookies requieren HTTPS y no se crea ningún usuario autom
 Un `UserDetailsService` consulta las credenciales en PostgreSQL mediante JDBC y Spring Security proporciona el flujo de autenticación. Las funcionalidades nuevas irán
 en paquetes hermanos de `auth`, dentro de `dev.memofb.finance`, según se necesiten.
 
+## Probar la API con Swagger
+
+Con el backend arrancado con el perfil `local`, abre `http://localhost:8080/swagger-ui.html`.
+La ruta redirige a `http://localhost:8080/swagger-ui/index.html`. El arranque mediante Maven usa IPv4
+para que el reenvío de `localhost` de Windows hacia WSL funcione conservando la escucha en `127.0.0.1`.
+Si ejecutas el JAR directamente en WSL, usa `java -Djava.net.preferIPv4Stack=true -jar target/finance-api-0.0.1-SNAPSHOT.jar`
+con `SPRING_PROFILES_ACTIVE=local` y tus variables habituales cargadas.
+Swagger UI muestra los servicios de autenticación y apartados con **Try it out → Execute**.
+La especificación OpenAPI está en `/v3/api-docs`. Se utiliza springdoc 3.2.0, compatible con Spring Boot 4.1
+según su [matriz de compatibilidad](https://springdoc.org/faq.html#what-is-the-compatibility-matrix-of-springdoc-openapi-with-spring-boot).
+
+1. Ejecuta `POST /api/auth/login` con el correo y contraseña de una cuenta existente. Usa los campos del
+   formulario que muestra Swagger; responde `204`. También puedes crear una cuenta con `/api/auth/register`.
+2. Comprueba tu sesión con `GET /api/auth/me` y prueba los endpoints de apartados.
+3. Ejecuta `POST /api/auth/logout` para cerrar la sesión.
+
+Swagger obtiene un token nuevo de `/api/auth/csrf` antes de cada escritura y lo envía en su encabezado,
+incluidos login y logout. La cookie de sesión se conserva en el navegador; no necesitas copiar tokens,
+introducir un bearer token ni integrar el frontend. Esta adaptación usa el interceptor de solicitudes
+de [Swagger UI](https://swagger.io/docs/open-source-tools/swagger-ui/usage/configuration/).
+
+Swagger y OpenAPI están deshabilitados por defecto y se habilitan en `local`, que escucha solo en la
+interfaz local. Las operaciones de prueba modifican los datos de la base que tenga configurada tu backend;
+CSRF y la autenticación de los servicios siguen activos.
+
 ## Contrato de autenticación
 
 El registro requiere `name`, `email` y `password`. El nombre se recorta en sus extremos y debe tener de 1 a 100

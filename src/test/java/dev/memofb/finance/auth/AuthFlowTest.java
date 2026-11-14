@@ -30,6 +30,7 @@ import tools.jackson.databind.json.JsonMapper;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -69,6 +70,13 @@ class AuthFlowTest {
     private JdbcTemplate jdbc;
 
     private static final String REGISTER_EMAIL = "maria@example.com";
+
+    @Test
+    void swaggerIsDisabledOutsideTheLocalProfile() throws Exception {
+        for (var path : new String[] {"/v3/api-docs", "/v3/api-docs/swagger-config", "/swagger-ui.html", "/swagger-ui/index.html"}) {
+            mvc.perform(get(path).with(user(users.loadUserByUsername(EMAIL)))).andExpect(status().isNotFound());
+        }
+    }
 
     @BeforeEach
     void createUserInPostgres() {
