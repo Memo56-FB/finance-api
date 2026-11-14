@@ -110,6 +110,68 @@ console.log(await me.json())
 Las sesiones viven en memoria y se pierden al reiniciar. Antes de publicar la API, configura límites de intentos
 de login y registro en el proxy; para múltiples instancias, usa un almacenamiento compartido de sesiones.
 
+## Apartados de ahorro
+
+Los apartados se guardan en `savings_pots`, creada por la migración V4 y vinculada a `users.username`.
+Cada usuario puede tener múltiples apartados, incluso con nombres repetidos. Se almacenan `name`,
+`target_amount`, `balance`, `color` y `deleted_at`; los importes usan `NUMERIC(19,2)` y el saldo inicial es cero.
+Solo se consultan apartados activos propios. El borrado conserva los datos y su saldo, sin purga física
+programada. Esta funcionalidad no crea tablas de presupuestos, categorías ni transacciones.
+
+Todos los endpoints de apartados requieren la sesión existente. Las escrituras también requieren el token
+CSRF obtenido de `/api/auth/csrf`. CORS permite `PUT` y `DELETE` desde el mismo origen frontend configurado.
+
+| Método | Endpoint | Resultado |
+| --- | --- | --- |
+| GET | `/api/savings-pots` | `200` con `items` y `totalBalance`, ordenados por `id` ascendente. |
+| GET | `/api/savings-pots/{id}` | `200` con el apartado activo propio. |
+| POST | `/api/savings-pots` | `201` con el apartado nuevo, saldo cero y `Location` al detalle. |
+| PUT | `/api/savings-pots/{id}` | `200` con los metadatos actualizados; conserva el saldo. |
+| POST | `/api/savings-pots/{id}/deposits` | `200` con el saldo incrementado. |
+| POST | `/api/savings-pots/{id}/withdrawals` | `200` con el saldo reducido. |
+| DELETE | `/api/savings-pots/{id}` | `200` con `id`, `deletedAt` y `restoreUntil`. |
+| POST | `/api/savings-pots/{id}/restore` | `200` con el apartado restaurado dentro del plazo. |
+
+Creación y edición reciben los tres campos: `{ "name": "Emergency fund", "targetAmount": 1500.00,
+"color": "#AABBCC" }`. El nombre se recorta y requiere de 1 a 100 unidades UTF-16; el color acepta seis
+dígitos hexadecimales con `#` y se normaliza a mayúsculas. La meta es positiva, de máximo dos decimales,
+hasta `99999999999999999.99`, y puede quedar por debajo del saldo existente. El cliente no elige el dueño
+ni modifica directamente el saldo o el estado de borrado.
+
+Cada apartado se representa como `{ "id": 1, "name": "Emergency fund", "targetAmount": 1500.00,
+"balance": 0.00, "color": "#AABBCC" }`. `totalBalance` es la suma decimal exacta de los apartados activos
+propios, no el saldo global con presupuestos futuros. Sin apartados activos devuelve `items: []` y total cero.
+El listado no tiene paginado ni un máximo de apartados por usuario en esta versión.
+
+Datos o identificadores inválidos devuelven `400`; identificadores inexistentes, ajenos o borrados devuelven
+`404` en las consultas normales y edición. Los errores de aplicación usan `application/problem+json` con
+`status`, `title` y `detail`; los de campos incluyen `errors` con `field` y `message`. Las consultas sin
+sesión reciben `401`, y las escrituras sin CSRF válido `403`, sin revelar datos de otros usuarios.
+
+Abonos y retiros reciben `{ "amount": 25.15 }`: importe positivo de máximo dos decimales, hasta el mismo
+límite de la meta. Un abono puede superar la meta. Un retiro puede dejar el saldo en cero, pero nunca
+negativo. Fondos insuficientes o un abono que excedería el saldo máximo devuelven `409` sin modificar datos.
+El total aumenta o disminuye con el saldo de cada apartado. Las operaciones del mismo apartado se
+serializan mediante un bloqueo de fila dentro de una transacción, para conservar cambios concurrentes.
+
+Cada solicitud monetaria exitosa aplica una operación nueva: no hay historial ni deduplicación de
+solicitudes en esta versión. Evita reintentos automáticos de abonos/retiros tras una respuesta incierta,
+pues podrían aplicarse dos veces. Los números JSON deben conservar su precisión decimal en el cliente;
+el backend utiliza `BigDecimal` para los cálculos y no hace conversiones de moneda.
+
+Borrar un apartado con dinero está permitido: conserva sus datos y saldo, pero lo oculta y excluye su
+saldo del total inmediatamente, sin registrar un gasto ni un retiro. La respuesta devuelve instantes UTC,
+por ejemplo `{ "id": 1, "deletedAt": "2026-11-14T00:00:00Z", "restoreUntil": "2026-11-14T00:00:10Z" }`.
+Puedes deshacer con `POST /api/savings-pots/1/restore` sin cuerpo, con sesión y CSRF válidos. La hora del
+servidor, comprobada después de obtener el bloqueo de la fila, debe ser anterior a `restoreUntil`.
+En el instante exacto del vencimiento o después devuelve `409`; el registro permanece retenido y oculto.
+
+Repetir DELETE devuelve las fechas originales sin extender los diez segundos. Restaurar un apartado ya
+activo devuelve su estado sin duplicar saldo. Al restaurar se recuperan el saldo y los metadatos originales
+y se vuelve a incluir su contribución al total. Reiniciar el backend no reinicia el plazo. Mientras está
+borrado, consultar el detalle, editar, abonar o retirar devuelve `404`; no existe recuperación tardía por API
+ni un proceso que elimine físicamente estos registros.
+
 ## Pruebas
 
 ```bash
