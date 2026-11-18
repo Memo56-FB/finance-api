@@ -317,15 +317,27 @@ POST/PUT recibe, por ejemplo:
 {"name":"Laptop","categoryId":1,"type":"INSTALLMENT","amount":50.00,"firstDueDate":"2027-03-05","totalInstallments":12}
 ```
 
-`amount` es el importe **por cuota**. Una suscripción usa `type=SUBSCRIPTION` y omite `totalInstallments`.
-La categoría propia activa permite generar el gasto. Cada definición tiene un vencimiento mensual, con
-ajuste al último día de meses cortos y retorno al día ancla. La primera cuota pertenece al primer mes de
+`amount` es el importe **por cuota o vencimiento**, sin dividirlo ni multiplicarlo por el intervalo.
+Una suscripción usa `type=SUBSCRIPTION`, omite `totalInstallments` y admite `intervalMonths` de 1 a 12:
+1 significa cada mes, 2 cada dos meses, 3 cada tres y 12 una vez al año. Por ejemplo:
+
+```json
+{"name":"Streaming","categoryId":1,"type":"SUBSCRIPTION","amount":30.00,"firstDueDate":"2027-01-31","intervalMonths":3}
+```
+
+Ese ejemplo vence el 31 de enero, 30 de abril, 31 de julio y 31 de octubre. Si se omite `intervalMonths`,
+se usa 1; las suscripciones existentes conservan su frecuencia mensual mediante V6. Los pagos
+`INSTALLMENT` siguen siendo mensuales y rechazan intervalos distintos de 1. Las respuestas devuelven
+`intervalMonths` para que el frontend pueda mostrar la frecuencia en cualquiera de sus idiomas.
+
+La categoría propia activa permite generar el gasto. Cada definición tiene un calendario de vencimientos,
+con ajuste al último día de meses cortos y retorno al día ancla. La primera cuota pertenece al primer mes de
 `firstDueDate`. GET de lista/detalle admite `month=YYYY-MM` y expone nombre base, `billingDay`, `dueDate`,
 `status`, `paidAmount`, `paidInstallments` y `totalInstallments`. El frontend forma `Laptop 3/12` con los
 campos numéricos; ese sufijo no se guarda. La lista incluye definiciones activas programadas para el mes;
 el detalle puede devolver `NOT_SCHEDULED` fuera del calendario. Los órdenes de fecha usan el vencimiento del mes.
 
-Al llegar el vencimiento se registra automáticamente un gasto negativo, una vez por ocurrencia mensual.
+Al llegar el vencimiento se registra automáticamente un gasto negativo, una vez por ocurrencia programada.
 También puede marcarse anticipadamente con PUT `/{id}/payments/2027-03`, sin cuerpo. Repetirlo o competir
 con el job devuelve el mismo pago sin otro gasto. El manual fecha el gasto hoy; el automático lo fecha en
 el vencimiento. Un pago anticipado cuenta como pagado en su mes de vencimiento, pero afecta al presupuesto
