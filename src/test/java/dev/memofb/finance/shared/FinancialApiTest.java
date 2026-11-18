@@ -129,6 +129,45 @@ class FinancialApiTest extends FinancialTestSupport {
     }
 
     @Test
+    void potLedgerCorrectionsDeletionAndCutsPreserveBalances() throws Exception {
+        long category=category("Travel");
+        create("/api/budgets",Map.of("categoryId",category,"spendingLimit",100,"color","#FFFFFF"));
+        var pot=create("/api/savings-pots",Map.of("name","Travel","targetAmount",200,"color","#FFFFFF"));
+        var path="/api/savings-pots/"+pot.get("id").asLong();
+        http(post(path+"/deposits").contentType("application/json").content("{\"amount\":100}"),200);
+        http(post(path+"/withdrawals").contentType("application/json").content("{\"amount\":20}"),200);
+        var history=read("/api/transactions?sort=oldest").get("items");
+        assertThat(history.size()).isEqualTo(2);assertThat(history.get(0).get("potId").asLong()).isEqualTo(pot.get("id").asLong());
+        long deposit=history.get(0).get("id").asLong(),withdrawal=history.get(1).get("id").asLong();
+        write("/api/transactions/"+withdrawal,movement("Trip",category,"2027-03-20","-20"));
+        write("/api/transactions/"+deposit,movement("Opening",category,"2027-02-20","100"));
+        assertThat(read(path).get("balance").decimalValue()).isEqualByComparingTo("80");
+        assertThat(read("/api/financial-summary").get("currentBalance").decimalValue()).isEqualByComparingTo("-20");
+        http(delete("/api/transactions/"+deposit),409);
+        http(delete(path),200);
+        assertThat(read("/api/financial-summary").get("expenses").decimalValue()).isZero();
+        assertThat(read("/api/budgets/1").get("spent").decimalValue()).isZero();
+        http(get("/api/transactions/"+withdrawal),404);
+        http(post(path+"/restore"),200);
+        assertThat(read("/api/budgets/1").get("spent").decimalValue()).isEqualByComparingTo("20");
+        http(delete("/api/transactions/"+withdrawal),204);
+        assertThat(read(path).get("balance").decimalValue()).isEqualByComparingTo("100");
+        http(delete("/api/transactions/"+deposit),204);
+        assertThat(read(path).get("balance").decimalValue()).isZero();
+    }
+
+    @Test
+    void databaseFailureRollsBackBothPotBalanceAndItsMovement() throws Exception {
+        var pot=create("/api/savings-pots",Map.of("name","Pot","targetAmount",200,"color","#FFFFFF"));
+        jdbc.execute("ALTER TABLE transactions ADD CONSTRAINT reject_pot_for_test CHECK(source_type<>'POT')");
+        try {
+            assertThatThrownBy(()->http(post("/api/savings-pots/"+pot.get("id").asLong()+"/deposits").contentType("application/json").content("{\"amount\":5}"),200));
+            assertThat(jdbc.queryForObject("SELECT balance FROM savings_pots",BigDecimal.class)).isZero();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM transactions",Long.class)).isZero();
+        } finally { jdbc.execute("ALTER TABLE transactions DROP CONSTRAINT reject_pot_for_test"); }
+    }
+
+    @Test
     void ownerLocksDoNotBlockAnotherUser() throws Exception {
         var tx=new TransactionTemplate(transactionManager);
         try(var workers=Executors.newFixedThreadPool(2)) {
@@ -166,6 +205,23 @@ class FinancialApiTest extends FinancialTestSupport {
             assertThat(next.get("periodStart").asString()).isEqualTo("2027-03-19");
             assertThat(next.get("income").decimalValue()).isZero();
         }
+    }
+
+    @Test
+    void concurrentDepositAndCorrectionKeepLedgerEqualToPotProjection() throws Exception {
+        long category=category("Travel");
+        var pot=create("/api/savings-pots",Map.of("name","Travel","targetAmount",200,"color","#FFFFFF"));
+        var path="/api/savings-pots/"+pot.get("id").asLong();
+        http(post(path+"/deposits").contentType("application/json").content("{\"amount\":100}"),200);
+        long original=read("/api/transactions").get("items").get(0).get("id").asLong();
+        var start=new CountDownLatch(1);
+        try(var pool=Executors.newFixedThreadPool(2)) {
+            var deposit=pool.submit(()->{start.await();return http(post(path+"/deposits").contentType("application/json").content("{\"amount\":50}"),200);});
+            var correction=pool.submit(()->{start.await();return write("/api/transactions/"+original,movement("Corrected",category,"2027-03-20","75"));});
+            start.countDown();deposit.get(10,TimeUnit.SECONDS);correction.get(10,TimeUnit.SECONDS);
+        }
+        assertThat(read(path).get("balance").decimalValue()).isEqualByComparingTo("125");
+        assertThat(jdbc.queryForObject("SELECT sum(amount) FROM effective_transactions WHERE pot_id=?",BigDecimal.class,pot.get("id").asLong())).isEqualByComparingTo("125");
     }
 
     @Test

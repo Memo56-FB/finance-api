@@ -6,6 +6,9 @@ import java.time.Duration;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import dev.memofb.finance.shared.BusinessCalendar;
+import dev.memofb.finance.shared.FinancialLock;
+import dev.memofb.finance.transactions.TransactionRepository;
 
 @Service
 class SavingsPotService {
@@ -15,13 +18,21 @@ class SavingsPotService {
 
     private final SavingsPotRepository pots;
     private final Clock clock;
+    private final FinancialLock lock;
+    private final BusinessCalendar calendar;
+    private final TransactionRepository transactions;
 
-    SavingsPotService(SavingsPotRepository pots, Clock clock) {
+    SavingsPotService(SavingsPotRepository pots, Clock clock, FinancialLock lock, BusinessCalendar calendar, TransactionRepository transactions) {
         this.pots = pots;
         this.clock = clock;
+        this.lock = lock;
+        this.calendar = calendar;
+        this.transactions = transactions;
     }
 
+    @Transactional
     public SavingsPotResponse create(String username, SavingsPotRequest request) {
+        lock.acquire(username);
         return SavingsPotResponse.from(pots.create(username, request.name(), request.targetAmount(), request.color()));
     }
 
@@ -83,6 +94,7 @@ class SavingsPotService {
         if (balance.compareTo(MAX_BALANCE) > 0) {
             throw new ConflictException("The savings pot balance limit would be exceeded");
         }
+        transactions.potMovement(username, id, pot.name(), calendar.today(), amount);
         return SavingsPotResponse.from(pots.updateBalance(username, id, balance));
     }
 
@@ -95,6 +107,7 @@ class SavingsPotService {
     }
 
     private SavingsPot lockOwned(String username, long id) {
+        lock.acquire(username);
         return pots.lock(username, id).orElseThrow(NotFoundException::new);
     }
 

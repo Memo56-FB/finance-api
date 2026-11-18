@@ -50,7 +50,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(properties = "spring.datasource.password=integration-test-only")
+@SpringBootTest(properties = {"spring.datasource.password=integration-test-only", "finance.recurring-payments.scheduling-enabled=false"})
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Testcontainers
@@ -91,6 +91,7 @@ class SavingsPotServiceTest {
     @BeforeEach
     void fixtures() {
         when(clock.instant()).thenReturn(NOW);
+        jdbc.update("DELETE FROM transactions");
         jdbc.update("DELETE FROM savings_pots");
         jdbc.update("DELETE FROM users");
         for (var email : new String[] {OWNER, OTHER}) {
@@ -234,7 +235,10 @@ class SavingsPotServiceTest {
         service.deposit(OWNER, id, BigDecimal.TEN);
         var deletion = service.delete(OWNER, id);
         when(clock.instant()).thenReturn(NOW.plusSeconds(seconds));
-        var recreated = new SavingsPotService(repository, clock);
+        var recreated = new SavingsPotService(repository, clock,
+                new dev.memofb.finance.shared.FinancialLock(jdbc),
+                new dev.memofb.finance.shared.BusinessCalendar(clock, "America/Mexico_City"),
+                new dev.memofb.finance.transactions.TransactionRepository(jdbc));
         var transaction = new TransactionTemplate(transactionManager);
 
         assertThatThrownBy(() -> transaction.execute(status -> recreated.restore(OWNER, id)))
