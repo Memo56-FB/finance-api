@@ -197,6 +197,183 @@ y se vuelve a incluir su contribución al total. Reiniciar el backend no reinici
 borrado, consultar el detalle, editar, abonar o retirar devuelve `404`; no existe recuperación tardía por API
 ni un proceso que elimine físicamente estos registros.
 
+## Registro financiero
+
+Todas las rutas siguientes requieren sesión. Los métodos POST, PUT y DELETE necesitan el token CSRF
+obtenido de `/api/auth/csrf`; Swagger local lo adjunta automáticamente. El propietario siempre se obtiene
+de la sesión: los cuerpos no permiten seleccionar otro usuario. IDs ajenos devuelven `404`, campos o
+parámetros inválidos `400`, conflictos de dominio `409` y falta de CSRF `403`.
+
+| Recurso | Métodos |
+| --- | --- |
+| `/api/categories` | GET lista activa, POST crear |
+| `/api/categories/{id}` | GET, PUT, DELETE |
+| `/api/transactions` | GET paginado, POST crear |
+| `/api/transactions/{id}` | GET, PUT, DELETE |
+| `/api/financial-summary` | GET del corte actual |
+| `/api/financial-summary/settings` | GET y PUT de la preferencia personal |
+| `/api/budgets` | GET lista, POST crear |
+| `/api/budgets/{id}` | GET, PUT, DELETE |
+| `/api/recurring-payments` | GET paginado, POST crear |
+| `/api/recurring-payments/{id}` | GET, PUT, DELETE |
+| `/api/recurring-payments/summary` | GET del resumen mensual de pagos |
+| `/api/recurring-payments/{id}/payments/{month}` | PUT sin cuerpo para marcar pagado `YYYY-MM` |
+
+POST devuelve `201` y `Location`; GET/PUT, `200`; los nuevos DELETE, `204`. Los ocho servicios de
+apartados conservan sus respuestas originales. No hay PUT/DELETE de totales financieros.
+
+### Categorías y transacciones
+
+POST/PUT de categorías recibe `{"name":"Groceries"}`. Los nombres se recortan, deben tener de 1 a 100
+caracteres y no tienen que ser únicos. No hay un límite de categorías por usuario. DELETE oculta la
+categoría, conserva sus referencias históricas y no cambia saldos. Si un presupuesto o pago recurrente
+activo la utiliza, devuelve `409`: primero hay que editar o eliminar ese dependiente. Una transacción
+histórica puede conservar su categoría inactiva; las nuevas asignaciones requieren una activa propia.
+
+POST/PUT de transacciones recibe:
+
+```json
+{"name":"Groceries","categoryId":1,"transactionDate":"2027-03-20","amount":-45.50}
+```
+
+El importe positivo registra un ingreso; el negativo, un gasto. Se admiten saldos negativos: este backend
+es un registro, no mueve dinero bancario. Los importes son decimales exactos, distintos de cero, de hasta
+17 enteros y 2 decimales. No se redondean entradas con más decimales. Las fechas usan `YYYY-MM-DD`.
+
+Las respuestas incluyen `sourceType`, `categoryName`, `potId`, `potName`, `recurringPaymentId`,
+`occurrenceId`, `openingBalance` y `budgetWarnings`. Los campos de origen los establece el servidor.
+GET devuelve los avisos vacíos; POST/PUT los calcula para los presupuestos afectados. Los cuatro campos
+del cuerpo son editables también en movimientos automáticos, manteniendo inmutable su procedencia.
+DELETE excluye el movimiento de cálculos e historial efectivo y conserva su vínculo de origen.
+
+El historial y la lista de pagos admiten `search`, `page` (desde 0), `size` (1–100, por defecto 20) y `sort`:
+`newest`, `oldest`, `name_asc`, `name_desc`, `amount_desc`, `amount_asc`. El orden por defecto es `newest`;
+funciona con o sin búsqueda. La búsqueda es un fragmento de nombre sin distinguir mayúsculas y trata
+`%`, `_` y `!` literalmente. Los empates se resuelven por ID. El importe de transacciones se ordena con
+su signo, no por valor absoluto. Por ejemplo: `/api/transactions?search=groceries&sort=amount_asc&page=0&size=20`.
+El filtro opcional `categoryId` acepta un ID positivo y se combina con `search` antes del conteo y la
+paginación. Por ejemplo: `/api/transactions?categoryId=1&search=groceries&sort=newest&page=1&size=4`.
+También permite consultar categorías inactivas con historial; una categoría inexistente o ajena devuelve
+cero resultados. Omitir el filtro conserva el listado habitual.
+
+La respuesta es `{items,page,size,totalElements,totalPages}`; una página posterior al final devuelve una
+lista vacía. Las listas de categorías y presupuestos usan `{items}`.
+
+### Cortes del resumen financiero
+
+GET/PUT `/api/financial-summary/settings` devuelve/recibe:
+
+```json
+{"frequency":"SEMIMONTHLY","startDay":4}
+```
+
+Solo se aceptan `MONTHLY` y `SEMIMONTHLY`, y días de 1 a 31. Sin preferencia guardada se usa mensual
+desde el día 1; consultar no crea una fila. El corte mensual desde el 4 va del 4 al 3 siguiente.
+El quincenal desde el 1 usa 1–15 y 16–fin de mes; desde el 4 usa 4–18 y 19–3 siguiente. El primer tramo
+dura quince días y el segundo se ajusta al ciclo mensual. Si falta el día elegido, se usa el último de ese
+mes conservando el ancla: día 31 en febrero se recorta y vuelve al 31 en marzo. No hay tercer corte para el día 31.
+
+GET `/api/financial-summary` devuelve `periodStart`/`periodEnd` inclusivos e `income`, `expenses` y
+`currentBalance`, usando solo movimientos efectivos fechados dentro de ese corte. Income suma positivos,
+expenses suma el valor absoluto de negativos y currentBalance es su diferencia. **CurrentBalance es el
+neto del corte, sin arrastre histórico.** Un corte vacío devuelve ceros. Cambiar la preferencia recalcula
+la consulta sin modificar movimientos, reiniciar apartados ni cambiar presupuestos o vencimientos.
+No es necesario un job para reiniciar totales al cambiar de periodo.
+
+`finance.business-zone` (variable `FINANCE_BUSINESS_ZONE`, por defecto `America/Mexico_City`) determina
+hoy y el mes de negocio; los instantes se conservan en UTC y las fechas de movimientos no se convierten
+de zona. Todas las réplicas deben usar la misma zona.
+
+Cada abono/retiro de apartado genera una transacción positiva/negativa atómica. El frontend puede traducir
+una categoría virtual usando `sourceType=POT` y `potId`, sin analizar textos traducidos; inicialmente no
+tiene `categoryId` personal. Editar o borrar su importe ajusta el balance del apartado y devuelve `409` si
+lo dejaría negativo o fuera de rango. Borrar/restaurar el apartado oculta/reactiva sus movimientos sin
+crear un gasto compensatorio ni duplicarlos. Un apartado con abono de 100 en un corte anterior y retiro
+de 20 en el actual conserva balance 80, mientras el resumen actual muestra neto -20.
+
+### Presupuestos mensuales
+
+POST/PUT recibe `{"categoryId":1,"spendingLimit":100.00,"color":"#AABBCC"}`. Existe como máximo un
+presupuesto activo por categoría. El color se normaliza a mayúsculas. GET de lista/detalle acepta
+`month=YYYY-MM`, por defecto el mes actual. Cada límite se repite mensualmente y editarlo cambia la
+definición usada también al consultar meses anteriores; no se versionan límites.
+
+Las lecturas añaden `month`, `spent`, `available`, `limitReached` y `exceededAmount`. Solo los movimientos
+negativos efectivos de esa categoría y mes consumen presupuesto; los ingresos no lo reponen.
+`available = spendingLimit - spent`; `limitReached = spent >= spendingLimit`;
+`exceededAmount = max(spent - spendingLimit, 0)`. Llegar exactamente a 100 de 100 activa la bandera con
+exceso cero; llegar a 110 devuelve disponible -10 y exceso 10. El gasto se guarda aunque supere el límite.
+
+POST/PUT de transacciones y el pago manual devuelven avisos `{budgetId,categoryId,month,limitReached,exceededAmount}`.
+Los pagos automáticos reflejan el exceso en el siguiente GET, sin notificaciones push. Reclasificar, cambiar
+fecha, borrar movimientos o esconder/restaurar apartados recalcula los importes. Cambiar el corte del
+resumen financiero no cambia estos meses calendario. Borrar un presupuesto no elimina sus transacciones.
+
+### Pagos recurrentes
+
+POST/PUT recibe, por ejemplo:
+
+```json
+{"name":"Laptop","categoryId":1,"type":"INSTALLMENT","amount":50.00,"firstDueDate":"2027-03-05","totalInstallments":12}
+```
+
+`amount` es el importe **por cuota**. Una suscripción usa `type=SUBSCRIPTION` y omite `totalInstallments`.
+La categoría propia activa permite generar el gasto. Cada definición tiene un vencimiento mensual, con
+ajuste al último día de meses cortos y retorno al día ancla. La primera cuota pertenece al primer mes de
+`firstDueDate`. GET de lista/detalle admite `month=YYYY-MM` y expone nombre base, `billingDay`, `dueDate`,
+`status`, `paidAmount`, `paidInstallments` y `totalInstallments`. El frontend forma `Laptop 3/12` con los
+campos numéricos; ese sufijo no se guarda. La lista incluye definiciones activas programadas para el mes;
+el detalle puede devolver `NOT_SCHEDULED` fuera del calendario. Los órdenes de fecha usan el vencimiento del mes.
+
+Al llegar el vencimiento se registra automáticamente un gasto negativo, una vez por ocurrencia mensual.
+También puede marcarse anticipadamente con PUT `/{id}/payments/2027-03`, sin cuerpo. Repetirlo o competir
+con el job devuelve el mismo pago sin otro gasto. El manual fecha el gasto hoy; el automático lo fecha en
+el vencimiento. Un pago anticipado cuenta como pagado en su mes de vencimiento, pero afecta al presupuesto
+y al corte financiero de la fecha de su gasto.
+
+Editar nombre/categoría/fecha/importe del gasto corrige ese pago sin cambiar futuras cuotas. Borrar el
+gasto o cambiarlo a positivo lo deja `VOID` (pendiente con registro automático suprimido), de modo que el
+job respeta la corrección. Un nuevo marcado manual puede registrar un reemplazo. El ingreso previo puede
+conservarse; volverlo negativo devuelve `409` si ya existe otro gasto activo para esa ocurrencia.
+Cambiar tipo, nombre, importe, categoría o día de la definición no reescribe pagos anteriores. Después de
+la primera ocurrencia no se cambia el primer mes ni se reduce el total por debajo de la mayor cuota
+registrada. DELETE cancela futuros registros y conserva gastos/pagos históricos.
+
+GET `/api/recurring-payments/summary?month=2027-03` devuelve `paid`, `pending`, `dueSoon` y `total`, cada uno
+con `count` y `totalAmount`. Por vencer es un subconjunto de pendientes desde hoy hasta siete días después,
+inclusive; los atrasados no entran en esa ventana. Por ejemplo, 5 pagados/155, 3 pendientes/300 y 2 por
+vencer/40 dan total 8/455, sin volver a sumar los 2 por vencer. Los importes pagados reflejan correcciones
+al gasto, incluso si se cancela la definición. Solo las definiciones activas generan pendientes. Estos
+resúmenes son mensuales e independientes del paginado, búsqueda y preferencias de corte financiero.
+
+El procesador interno corre cada 60 segundos y revisa como máximo 100 ocurrencias por ejecución. Recupera
+atrasos tras una caída y no escribe en GET; mientras el backend esté detenido no ejecuta pagos. No realiza
+cobros bancarios ni promete ejecución exacta a medianoche. Las restricciones únicas y bloqueos en PostgreSQL
+evitan duplicados entre réplicas, job y pagos manuales. Un fallo revierte su ocurrencia, no impide las demás
+y se reintenta luego. Configuración:
+
+```properties
+finance.business-zone=America/Mexico_City
+finance.recurring-payments.scheduling-enabled=true
+finance.recurring-payments.interval=PT60S
+```
+
+Se puede desactivar con `FINANCE_RECURRING_PAYMENTS_SCHEDULING_ENABLED=false`; el marcado manual sigue
+disponible. Las pruebas no dedicadas lo desactivan y las de scheduling comprueban su invocación real.
+
+### Migración y despliegue
+
+V5 crea las seis tablas financieras y una vista de movimientos efectivos sin modificar V1–V4 ni las
+cuentas existentes. Cada apartado con saldo previo no cero obtiene un único movimiento `openingBalance=true`
+fechado al migrar. Conserva el saldo y el borrado del apartado; no reconstruye depósitos/retiros anteriores.
+Ese movimiento participa únicamente en el corte que contiene su fecha, y los apartados borrados lo ocultan.
+Los usuarios sin preferencia reciben mensual día 1 sin insertar filas de configuración.
+
+Detén las escrituras financieras durante el despliegue; deja terminar Flyway antes de habilitar la nueva
+aplicación y el job. Para revertir, desactiva el job y detén escrituras: el código anterior podría modificar
+apartados sin crear movimientos. Conserva tablas y datos y reconcilia ambos antes de reactivar, o despliega
+una corrección hacia delante. No borres datos ni reescribas migraciones aplicadas para hacer rollback.
+
 ## Pruebas
 
 ```bash
@@ -206,7 +383,9 @@ ni un proceso que elimine físicamente estos registros.
 Ejecuta pruebas unitarias de validación y creación del usuario local, pruebas HTTP del registro y pruebas de
 integración con un PostgreSQL independiente en Testcontainers. Las pruebas de integración requieren Docker y
 cubren migración de cuentas existentes, registro, duplicados, concurrencia, rollback, autenticación, sesión,
-CSRF, CORS, credenciales incorrectas y cuentas deshabilitadas. No utilizan ni borran la base de desarrollo.
+CSRF, CORS, credenciales incorrectas y cuentas deshabilitadas. También cubren categorías, transacciones,
+presupuestos, cortes personales, balance y movimientos de apartados, pagos manuales/automáticos,
+recuperación tras fallos y concurrencia entre procesos. No utilizan ni borran la base de desarrollo.
 
 ## Skills
 
