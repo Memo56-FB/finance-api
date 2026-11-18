@@ -21,6 +21,12 @@ class FinancialApiTest extends FinancialTestSupport {
     @Autowired FinancialLock ownerLock;
     @Autowired PlatformTransactionManager transactionManager;
 
+    @ParameterizedTest @ValueSource(strings={"", " ", "\t"})
+    void rejectsBlankNames(String name) throws Exception {
+        http(post("/api/categories").contentType("application/json").content(json.writeValueAsString(Map.of("name",name))),400);
+        assertThat(read("/api/categories").get("items").size()).isZero();
+    }
+
     @Test
     void ownerLocksDoNotBlockAnotherUser() throws Exception {
         var tx=new TransactionTemplate(transactionManager);
