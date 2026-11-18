@@ -27,6 +27,13 @@ class FinancialApiTest extends FinancialTestSupport {
         assertThat(read("/api/categories").get("items").size()).isZero();
     }
 
+    @ParameterizedTest @ValueSource(strings={"{\"frequency\":\"MONTHLY\",\"startDay\":0}","{\"frequency\":\"MONTHLY\",\"startDay\":32}","{\"frequency\":\"WEEKLY\",\"startDay\":4}","{}"})
+    void invalidPreferencesLeavePreviousConfiguration(String body) throws Exception {
+        write("/api/financial-summary/settings",Map.of("frequency","SEMIMONTHLY","startDay",4));
+        http(put("/api/financial-summary/settings").contentType("application/json").content(body),400);
+        assertThat(read("/api/financial-summary/settings").get("startDay").asInt()).isEqualTo(4);
+    }
+
     @Test
     void ownerLocksDoNotBlockAnotherUser() throws Exception {
         var tx=new TransactionTemplate(transactionManager);
