@@ -31,9 +31,10 @@ public class TransactionRepository {
     public Optional<TransactionResponse> activeExpense(String owner,long occurrenceId) {
         return jdbc.query(SELECT+" AND t.recurring_occurrence_id=? AND t.amount<0",ROW,owner,occurrenceId).stream().findFirst();
     }
-    PageResponse<TransactionResponse> list(String owner,ListQuery query) {
+    PageResponse<TransactionResponse> list(String owner,ListQuery query,Long categoryId) {
         var filter=" AND t.name ILIKE ? ESCAPE '!'";
         var args=new ArrayList<Object>(List.of(owner,query.pattern()));
+        if(categoryId!=null) { filter+=" AND t.category_id=?";args.add(categoryId); }
         var total=jdbc.queryForObject("SELECT count(*) FROM effective_transactions t WHERE t.username=?"+filter,
                 Long.class,args.toArray());
         args.add(query.size());args.add(query.offset());

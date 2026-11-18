@@ -27,7 +27,7 @@ class TransactionService {
     }
     public TransactionResponse get(String owner,long id) { return repository.get(owner,id); }
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
-    public PageResponse<TransactionResponse> list(String owner,ListQuery query) { return repository.list(owner,query); }
+    public PageResponse<TransactionResponse> list(String owner,ListQuery query,Long categoryId) { return repository.list(owner,query,categoryId); }
     @Transactional
     public TransactionResponse create(String owner,TransactionRequest request) {
         lock.acquire(owner); categories.requireAssignment(owner,request.categoryId(),null);
