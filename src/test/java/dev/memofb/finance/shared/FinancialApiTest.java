@@ -21,10 +21,49 @@ class FinancialApiTest extends FinancialTestSupport {
     @Autowired FinancialLock ownerLock;
     @Autowired PlatformTransactionManager transactionManager;
 
+    @Test
+    void personalCategoriesPreserveHistoryAndRejectActiveDependents() throws Exception {
+        assertThat(read("/api/categories").get("items").size()).isZero();
+        long id=category("  Food  ");
+        assertThat(read("/api/categories/"+id).get("name").asString()).isEqualTo("Food");
+        httpAs(OTHER,get("/api/categories/"+id),404);
+        httpAs(OTHER,put("/api/categories/"+id).contentType("application/json").content("{\"name\":\"Stolen\"}"),404);
+        httpAs(OTHER,delete("/api/categories/"+id),404);
+        var tx=transaction("Lunch",id,"2027-03-20","-10");
+        write("/api/categories/"+id,Map.of("name","Groceries"));
+        create("/api/budgets",Map.of("categoryId",id,"spendingLimit",100,"color","#aabbcc"));
+        http(delete("/api/categories/"+id),409);
+        http(delete("/api/budgets/1"),204);
+        long bill=bill("Bill",id,"2027-04-01","10",null);
+        http(delete("/api/categories/"+id),409);
+        http(delete("/api/recurring-payments/"+bill),204);
+        http(delete("/api/categories/"+id),204);
+        assertThat(read("/api/categories").get("items").size()).isZero();
+        assertThat(read("/api/transactions/"+tx.get("id").asLong()).get("categoryName").asString()).isEqualTo("Groceries");
+        assertThat(write("/api/transactions/"+tx.get("id").asLong(),movement("Updated",id,"2027-03-20","-11")).get("amount").decimalValue()).isEqualByComparingTo("-11");
+        http(post("/api/transactions").contentType("application/json").content(json.writeValueAsString(movement("New",id,"2027-03-20","-5"))),400);
+        assertThat(read("/api/financial-summary").get("expenses").decimalValue()).isEqualByComparingTo("11");
+    }
+
     @ParameterizedTest @ValueSource(strings={"", " ", "\t"})
     void rejectsBlankNames(String name) throws Exception {
         http(post("/api/categories").contentType("application/json").content(json.writeValueAsString(Map.of("name",name))),400);
         assertThat(read("/api/categories").get("items").size()).isZero();
+    }
+
+    @Test
+    void validatesSecurityForEveryNewResource() throws Exception {
+        for(var path:List.of("/api/categories","/api/transactions","/api/financial-summary","/api/financial-summary/settings","/api/budgets","/api/recurring-payments","/api/recurring-payments/summary")) {
+            mvc.perform(get(path)).andExpect(status().isUnauthorized());
+        }
+        for(var path:List.of("/api/categories","/api/transactions","/api/budgets","/api/recurring-payments")) {
+            mvc.perform(post(path).with(user(OWNER)).contentType("application/json").content("{}")).andExpect(status().isForbidden());
+        }
+        mvc.perform(put("/api/financial-summary/settings").with(user(OWNER)).contentType("application/json").content("{}")).andExpect(status().isForbidden());
+        mvc.perform(put("/api/recurring-payments/1/payments/2027-03").with(user(OWNER))).andExpect(status().isForbidden());
+        http(put("/api/financial-summary").contentType("application/json").content("{}"),405);
+        http(delete("/api/financial-summary"),405);
+        http(post("/api/categories").contentType("application/json").content(json.writeValueAsString(Map.of("name","x".repeat(101)))),400);
     }
 
     @Test
@@ -242,5 +281,35 @@ class FinancialApiTest extends FinancialTestSupport {
         assertThat(read("/api/financial-summary")).isEqualTo(before);
     }
 
-
+    @Test
+    void realRegistrationSessionAndCsrfReachAllFinancialFeatures() throws Exception {
+        var anonymous=mvc.perform(get("/api/auth/csrf")).andExpect(status().isOk()).andReturn();
+        var session=(org.springframework.mock.web.MockHttpSession)anonymous.getRequest().getSession(false);
+        var token=json.readTree(anonymous.getResponse().getContentAsString()).get("token").asString();
+        var registration=Map.of("name","New user","email","flow@example.com","password","integration-test-passphrase");
+        mvc.perform(post("/api/auth/register").session(session).header("X-CSRF-TOKEN",token).contentType("application/json").content(json.writeValueAsString(registration)))
+                .andExpect(status().isCreated());
+        mvc.perform(post("/api/auth/login").session(session).header("X-CSRF-TOKEN",token).param("email","flow@example.com").param("password","integration-test-passphrase"))
+                .andExpect(status().isNoContent());
+        var csrf=mvc.perform(get("/api/auth/csrf").session(session)).andReturn();
+        token=json.readTree(csrf.getResponse().getContentAsString()).get("token").asString();
+        var created=mvc.perform(post("/api/categories").session(session).header("X-CSRF-TOKEN",token).contentType("application/json").content("{\"name\":\"General\"}"))
+                .andExpect(status().isCreated()).andReturn();
+        long category=json.readTree(created.getResponse().getContentAsString()).get("id").asLong();
+        for(var operation:List.of(
+                put("/api/financial-summary/settings").content("{\"frequency\":\"SEMIMONTHLY\",\"startDay\":4}"),
+                post("/api/budgets").content(json.writeValueAsString(Map.of("categoryId",category,"spendingLimit",10,"color","#FFFFFF"))),
+                post("/api/transactions").content(json.writeValueAsString(movement("Food",category,"2027-03-20","-20"))),
+                post("/api/savings-pots").content("{\"name\":\"Pot\",\"targetAmount\":100,\"color\":\"#FFFFFF\"}"),
+                post("/api/recurring-payments").content(json.writeValueAsString(Map.of("name","Bill","categoryId",category,"amount",5,"firstDueDate","2027-03-20","type","SUBSCRIPTION"))))) {
+            mvc.perform(operation.session(session).header("X-CSRF-TOKEN",token).contentType("application/json")).andExpect(status().is2xxSuccessful());
+        }
+        mvc.perform(post("/api/savings-pots/1/deposits").session(session).header("X-CSRF-TOKEN",token).contentType("application/json").content("{\"amount\":100}"))
+                .andExpect(status().isOk());
+        mvc.perform(put("/api/recurring-payments/1/payments/2027-03").session(session).header("X-CSRF-TOKEN",token)).andExpect(status().isOk());
+        var summary=mvc.perform(get("/api/financial-summary").session(session)).andExpect(status().isOk()).andReturn();
+        assertThat(json.readTree(summary.getResponse().getContentAsString()).get("currentBalance").decimalValue()).isEqualByComparingTo("75");
+        assertThat(read("/api/categories").get("items").size()).isZero();
+        httpAs(OTHER,get("/api/transactions/1"),404);
+    }
 }
