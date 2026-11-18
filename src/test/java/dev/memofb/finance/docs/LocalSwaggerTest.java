@@ -75,6 +75,11 @@ class LocalSwaggerTest {
         assertThat(paths.get("/api/financial-summary/settings").has("put")).isTrue();
         assertThat(paths.get("/api/recurring-payments/summary").has("get")).isTrue();
         assertThat(paths.get("/api/recurring-payments/{id}/payments/{month}").has("put")).isTrue();
+        var schemas = json.readTree(document).get("components").get("schemas");
+        var interval = schemas.get("RecurringPaymentRequest").get("properties").get("intervalMonths");
+        assertThat(interval.get("minimum").asInt()).isEqualTo(1);
+        assertThat(interval.get("maximum").asInt()).isEqualTo(12);
+        assertThat(schemas.get("RecurringPaymentResponse").get("properties").has("intervalMonths")).isTrue();
         assertThat(document).doesNotContain("swagger-test-passphrase", "{bcrypt}");
         mvc.perform(get("/api/savings-pots")).andExpect(status().isUnauthorized());
     }

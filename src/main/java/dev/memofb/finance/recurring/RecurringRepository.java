@@ -10,7 +10,7 @@ import dev.memofb.finance.shared.*;
 class RecurringRepository {
     private static final RowMapper<RecurringPayment> RAW=(r,i)->new RecurringPayment(r.getLong("id"),r.getString("name"),
             r.getLong("category_id"),PaymentType.valueOf(r.getString("type")),r.getBigDecimal("amount"),r.getObject("first_due_date",LocalDate.class),
-            r.getObject("total_installments",Integer.class),r.getInt("next_auto_sequence"));
+            r.getObject("total_installments",Integer.class),r.getInt("next_auto_sequence"),r.getInt("interval_months"));
     private static final String MONTHLY="""
             WITH params AS (SELECT ?::date AS month_start), progress AS (
                 SELECT o.recurring_payment_id,count(*) AS paid_count FROM recurring_payment_occurrences o
@@ -18,12 +18,14 @@ class RecurringRepository {
                 WHERE o.username=? GROUP BY o.recurring_payment_id
             )
             SELECT r.*,c.name AS category_name,COALESCE(progress.paid_count,0) AS paid_count,
-                CASE WHEN o.id IS NOT NULL OR (x.month_start>=date_trunc('month',r.first_due_date)::date
-                    AND (r.total_installments IS NULL OR x.month_start<date_trunc('month',r.first_due_date)+r.total_installments*INTERVAL '1 month'))
+                CASE WHEN o.id IS NOT NULL OR (schedule.elapsed_months>=0 AND schedule.elapsed_months%r.interval_months=0
+                    AND (r.total_installments IS NULL OR schedule.elapsed_months/r.interval_months<r.total_installments))
                 THEN COALESCE(o.due_date,x.month_start+(LEAST(EXTRACT(DAY FROM r.first_due_date)::int,
                     EXTRACT(DAY FROM (x.month_start+INTERVAL '1 month - 1 day'))::int)-1)) END AS due_date,
                 COALESCE(o.status,'PENDING') AS status,o.id AS occurrence_id,-t.amount AS paid_amount,o.paid_at
             FROM recurring_payments r CROSS JOIN params x
+            CROSS JOIN LATERAL (SELECT ((EXTRACT(YEAR FROM x.month_start)::int-EXTRACT(YEAR FROM r.first_due_date)::int)*12
+                + EXTRACT(MONTH FROM x.month_start)::int-EXTRACT(MONTH FROM r.first_due_date)::int) AS elapsed_months) schedule
             JOIN categories c ON c.id=r.category_id AND c.username=r.username
             LEFT JOIN recurring_payment_occurrences o ON o.recurring_payment_id=r.id AND o.username=r.username AND o.due_month=x.month_start
             LEFT JOIN transactions t ON t.recurring_occurrence_id=o.id AND t.username=o.username AND t.deleted_at IS NULL AND t.amount<0
@@ -39,7 +41,7 @@ class RecurringRepository {
             var paid=r.getObject("paid_at",OffsetDateTime.class);
             return new RecurringPaymentResponse(r.getLong("id"),r.getString("name"),r.getLong("category_id"),r.getString("category_name"),
                     PaymentType.valueOf(r.getString("type")),r.getBigDecimal("amount"),first,first.getDayOfMonth(),
-                    r.getObject("total_installments",Integer.class),r.getLong("paid_count"),month,due,due==null?"NOT_SCHEDULED":r.getString("status"),
+                    r.getObject("total_installments",Integer.class),r.getInt("interval_months"),r.getLong("paid_count"),month,due,due==null?"NOT_SCHEDULED":r.getString("status"),
                     r.getObject("occurrence_id",Long.class),r.getBigDecimal("paid_amount"),paid==null?null:paid.toInstant());
         };
     }
@@ -76,13 +78,13 @@ class RecurringRepository {
     }
     long create(String owner,RecurringPaymentRequest r) {
         return jdbc.queryForObject("""
-                INSERT INTO recurring_payments(username,name,category_id,type,amount,first_due_date,total_installments)
-                VALUES (?,?,?,?,?,?,?) RETURNING id
-                """,Long.class,owner,r.name(),r.categoryId(),r.type().name(),r.amount(),r.firstDueDate(),r.totalInstallments());
+                INSERT INTO recurring_payments(username,name,category_id,type,amount,first_due_date,total_installments,interval_months)
+                VALUES (?,?,?,?,?,?,?,?) RETURNING id
+                """,Long.class,owner,r.name(),r.categoryId(),r.type().name(),r.amount(),r.firstDueDate(),r.totalInstallments(),r.intervalMonths());
     }
     void update(String owner,long id,RecurringPaymentRequest r) {
-        jdbc.update("UPDATE recurring_payments SET name=?,category_id=?,type=?,amount=?,first_due_date=?,total_installments=? WHERE username=? AND id=?",
-                r.name(),r.categoryId(),r.type().name(),r.amount(),r.firstDueDate(),r.totalInstallments(),owner,id);
+        jdbc.update("UPDATE recurring_payments SET name=?,category_id=?,type=?,amount=?,first_due_date=?,total_installments=?,interval_months=? WHERE username=? AND id=?",
+                r.name(),r.categoryId(),r.type().name(),r.amount(),r.firstDueDate(),r.totalInstallments(),r.intervalMonths(),owner,id);
     }
     void delete(String owner,long id) { jdbc.update("UPDATE recurring_payments SET deleted_at=CURRENT_TIMESTAMP WHERE username=? AND id=?",owner,id); }
     void advance(String owner,long id) { jdbc.update("UPDATE recurring_payments SET next_auto_sequence=next_auto_sequence+1 WHERE username=? AND id=?",owner,id); }
