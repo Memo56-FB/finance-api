@@ -38,7 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(properties = "spring.datasource.password=integration-test-only")
+@SpringBootTest(properties = {"spring.datasource.password=integration-test-only", "finance.recurring-payments.scheduling-enabled=false"})
 @AutoConfigureMockMvc
 @Testcontainers
 @ActiveProfiles("test")

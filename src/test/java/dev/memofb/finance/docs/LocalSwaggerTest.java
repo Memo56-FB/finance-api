@@ -23,7 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(properties = {"spring.datasource.password=integration-test-only",
+@SpringBootTest(properties = {"spring.datasource.password=integration-test-only", "finance.recurring-payments.scheduling-enabled=false",
         "finance.bootstrap.email=swagger@example.com", "finance.bootstrap.password=swagger-test-passphrase"})
 @ActiveProfiles("local")
 @AutoConfigureMockMvc
@@ -65,6 +65,16 @@ class LocalSwaggerTest {
         assertThat(paths.get("/api/savings-pots/{id}/deposits").has("post")).isTrue();
         assertThat(paths.get("/api/savings-pots/{id}/withdrawals").has("post")).isTrue();
         assertThat(paths.get("/api/savings-pots/{id}/restore").has("post")).isTrue();
+        for (var resource : new String[]{"categories", "transactions", "budgets", "recurring-payments"}) {
+            assertThat(paths.get("/api/" + resource).has("get")).isTrue();
+            assertThat(paths.get("/api/" + resource).has("post")).isTrue();
+            assertThat(paths.get("/api/" + resource + "/{id}").has("put")).isTrue();
+            assertThat(paths.get("/api/" + resource + "/{id}").has("delete")).isTrue();
+        }
+        assertThat(paths.get("/api/financial-summary").has("get")).isTrue();
+        assertThat(paths.get("/api/financial-summary/settings").has("put")).isTrue();
+        assertThat(paths.get("/api/recurring-payments/summary").has("get")).isTrue();
+        assertThat(paths.get("/api/recurring-payments/{id}/payments/{month}").has("put")).isTrue();
         assertThat(document).doesNotContain("swagger-test-passphrase", "{bcrypt}");
         mvc.perform(get("/api/savings-pots")).andExpect(status().isUnauthorized());
     }
