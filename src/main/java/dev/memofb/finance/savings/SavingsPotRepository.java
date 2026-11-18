@@ -12,7 +12,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 @Repository
-class SavingsPotRepository {
+public class SavingsPotRepository {
 
     private static final String COLUMNS = "id, name, target_amount, balance, color, deleted_at";
     private static final RowMapper<SavingsPot> ROW = (row, index) -> {
@@ -42,7 +42,7 @@ class SavingsPotRepository {
                 ROW, username, id).stream().findFirst();
     }
 
-    Optional<SavingsPot> lock(String username, long id) {
+    public Optional<SavingsPot> lock(String username, long id) {
         return jdbc.query("SELECT " + COLUMNS + " FROM savings_pots WHERE username = ? AND id = ? FOR UPDATE",
                 ROW, username, id).stream().findFirst();
     }
@@ -53,7 +53,7 @@ class SavingsPotRepository {
                 ROW, name, targetAmount, color, username, id);
     }
 
-    SavingsPot updateBalance(String username, long id, BigDecimal balance) {
+    public SavingsPot updateBalance(String username, long id, BigDecimal balance) {
         return jdbc.queryForObject("UPDATE savings_pots SET balance = ? WHERE username = ? AND id = ? "
                 + "AND deleted_at IS NULL RETURNING " + COLUMNS, ROW, balance, username, id);
     }
