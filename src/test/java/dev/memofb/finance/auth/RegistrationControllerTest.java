@@ -49,20 +49,20 @@ class RegistrationControllerTest {
     private UserDetailsService users;
 
     @Test
-    void registersAnAnonymousUserAndReturnsOnlyNameAndEmail() throws Exception {
-        given(registration.register(any())).willReturn(new RegistrationService.RegisteredUser("María", "maria@example.com"));
+    void registersAnAnonymousUserAndReturnsOnlyNameAndUsername() throws Exception {
+        given(registration.register(any())).willReturn(new RegistrationService.RegisteredUser("María", "maria"));
 
         var result = mvc.perform(post("/api/auth/register").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(
-                                "name", "  María  ", "email", "  MARIA@EXAMPLE.COM  ", "password", "abcdefgh"))))
+                                "name", "  María  ", "username", "  MARIA  ", "password", "abcdefgh"))))
                 .andExpect(status().isCreated())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(content().json("{\"name\":\"María\",\"email\":\"maria@example.com\"}"))
+                .andExpect(content().json("{\"name\":\"María\",\"username\":\"maria\"}"))
                 .andExpect(header().doesNotExist(HttpHeaders.LOCATION))
                 .andReturn();
         assertThat(json.readTree(result.getResponse().getContentAsString()).size()).isEqualTo(2);
-        verify(registration).register(new RegistrationRequest("María", "maria@example.com", "abcdefgh"));
+        verify(registration).register(new RegistrationRequest("María", "maria", "abcdefgh"));
     }
 
     @ParameterizedTest
@@ -86,9 +86,9 @@ class RegistrationControllerTest {
     }
 
     static Stream<Arguments> invalidBodies() {
-        var absent = Stream.of("name", "email", "password").flatMap(field -> Stream.of("omitted", "null", "blank")
+        var absent = Stream.of("name", "username", "password").flatMap(field -> Stream.of("omitted", "null", "blank")
                 .map(kind -> {
-                    var body = new HashMap<>(Map.of("name", "María", "email", "maria@example.com", "password", "abcdefgh"));
+                    var body = new HashMap<>(Map.of("name", "María", "username", "maria", "password", "abcdefgh"));
                     if (kind.equals("omitted")) {
                         body.remove(field);
                     } else {
@@ -97,11 +97,12 @@ class RegistrationControllerTest {
                     return Arguments.of(field, body);
                 }));
         var invalid = Stream.of(
-                Arguments.of("name", Map.of("name", "M".repeat(101), "email", "maria@example.com", "password", "abcdefgh")),
-                Arguments.of("email", Map.of("name", "María", "email", "invalid-email", "password", "abcdefgh")),
-                Arguments.of("password", Map.of("name", "María", "email", "maria@example.com", "password", "secret7")),
-                Arguments.of("password", Map.of("name", "María", "email", "maria@example.com", "password", "a".repeat(73))),
-                Arguments.of("password", Map.of("name", "María", "email", "maria@example.com", "password", "é".repeat(37))));
+                Arguments.of("username", Map.of("name", "María", "email", "old@example.com", "password", "abcdefgh")),
+                Arguments.of("name", Map.of("name", "M".repeat(101), "username", "maria", "password", "abcdefgh")),
+                Arguments.of("username", Map.of("name", "María", "username", "maria@example.com", "password", "abcdefgh")),
+                Arguments.of("password", Map.of("name", "María", "username", "maria", "password", "secret7")),
+                Arguments.of("password", Map.of("name", "María", "username", "maria", "password", "a".repeat(73))),
+                Arguments.of("password", Map.of("name", "María", "username", "maria", "password", "é".repeat(37))));
         return Stream.concat(absent, invalid);
     }
 
@@ -120,11 +121,11 @@ class RegistrationControllerTest {
     }
 
     @Test
-    void mapsDuplicateEmailToASafeConflict() throws Exception {
-        given(registration.register(any())).willThrow(new RegistrationService.EmailAlreadyRegisteredException());
+    void mapsDuplicateUsernameToASafeConflict() throws Exception {
+        given(registration.register(any())).willThrow(new RegistrationService.UsernameAlreadyRegisteredException());
         var result = mvc.perform(post("/api/auth/register").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json.writeValueAsString(Map.of("name", "María", "email", "maria@example.com", "password", "abcdefgh"))))
+                        .content(json.writeValueAsString(Map.of("name", "María", "username", "maria", "password", "abcdefgh"))))
                 .andExpect(status().isConflict())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(409))
@@ -132,6 +133,6 @@ class RegistrationControllerTest {
                 .andExpect(jsonPath("$.detail").isNotEmpty())
                 .andReturn();
         assertThat(result.getResponse().getContentAsString())
-                .doesNotContain("maria@example.com", "abcdefgh", "María", "SQL", "Exception", "{bcrypt}");
+                .doesNotContain("maria", "abcdefgh", "María", "SQL", "Exception", "{bcrypt}");
     }
 }

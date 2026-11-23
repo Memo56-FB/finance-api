@@ -39,6 +39,6 @@ class AuthController {
         return new CurrentUser(principal.getName());
     }
 
-    record CurrentUser(String email) {
+    record CurrentUser(String username) {
     }
 }

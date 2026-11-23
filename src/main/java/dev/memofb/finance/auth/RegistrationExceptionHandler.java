@@ -35,9 +35,9 @@ class RegistrationExceptionHandler extends ResponseEntityExceptionHandler {
         return handleExceptionInternal(exception, problem, headers, status, request);
     }
 
-    @ExceptionHandler(RegistrationService.EmailAlreadyRegisteredException.class)
-    ProblemDetail emailAlreadyRegistered() {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "El email ya está registrado");
+    @ExceptionHandler(RegistrationService.UsernameAlreadyRegisteredException.class)
+    ProblemDetail usernameAlreadyRegistered() {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "El nombre de usuario ya está registrado");
     }
 
     record FieldError(String field, String message) {

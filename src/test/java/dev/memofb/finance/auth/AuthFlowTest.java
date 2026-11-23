@@ -44,7 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 class AuthFlowTest {
 
-    private static final String EMAIL = "memo@example.com";
+    private static final String USERNAME = "memo";
     private static final String PASSWORD = "integration-test-passphrase";
 
     @Container
@@ -69,66 +69,66 @@ class AuthFlowTest {
     @Autowired
     private JdbcTemplate jdbc;
 
-    private static final String REGISTER_EMAIL = "maria@example.com";
+    private static final String REGISTER_USERNAME = "maria";
 
     @Test
     void swaggerIsDisabledOutsideTheLocalProfile() throws Exception {
         for (var path : new String[] {"/v3/api-docs", "/v3/api-docs/swagger-config", "/swagger-ui.html", "/swagger-ui/index.html"}) {
-            mvc.perform(get(path).with(user(users.loadUserByUsername(EMAIL)))).andExpect(status().isNotFound());
+            mvc.perform(get(path).with(user(users.loadUserByUsername(USERNAME)))).andExpect(status().isNotFound());
         }
     }
 
     @BeforeEach
     void createUserInPostgres() {
-        jdbc.update("DELETE FROM users WHERE username IN (?, ?)", REGISTER_EMAIL, EMAIL);
-        jdbc.update("INSERT INTO users (username, password, enabled) VALUES (?, ?, true)", EMAIL, passwords.encode(PASSWORD));
+        jdbc.update("DELETE FROM users WHERE username IN (?, ?)", REGISTER_USERNAME, USERNAME);
+        jdbc.update("INSERT INTO users (username, password, enabled) VALUES (?, ?, true)", USERNAME, passwords.encode(PASSWORD));
     }
 
     @Test
     void persistsTheRegisteredUserWithNameAndHashWithoutRoles() {
-        var created = registration.register(new RegistrationRequest("  María José  ", "  MARIA@EXAMPLE.COM  ", "abcdefgh"));
+        var created = registration.register(new RegistrationRequest("  María José  ", "  MARIA  ", "abcdefgh"));
 
-        assertThat(created).isEqualTo(new RegistrationService.RegisteredUser("María José", REGISTER_EMAIL));
-        var user = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL);
+        assertThat(created).isEqualTo(new RegistrationService.RegisteredUser("María José", REGISTER_USERNAME));
+        var user = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_USERNAME);
         assertThat(user).containsEntry("name", "María José").containsEntry("enabled", true);
         assertThat(user.get("password")).isNotEqualTo("abcdefgh");
         assertThat(passwords.matches("abcdefgh", (String) user.get("password"))).isTrue();
-        assertThat(users.loadUserByUsername(REGISTER_EMAIL).getAuthorities()).isEmpty();
+        assertThat(users.loadUserByUsername(REGISTER_USERNAME).getAuthorities()).isEmpty();
     }
 
     @Test
     void createsTheLocalUserWithoutRolesAndKeepsItsPasswordOnRestart() throws Exception {
         var configuration = new LocalUserConfiguration();
-        configuration.localUser(jdbc, passwords, "  MARIA@EXAMPLE.COM  ", "local-test-passphrase").run(null);
-        var before = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL);
+        configuration.localUser(jdbc, passwords, "  MARIA  ", "local-test-passphrase").run(null);
+        var before = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_USERNAME);
         assertThat(before).containsEntry("name", null).containsEntry("enabled", true);
         assertThat(passwords.matches("local-test-passphrase", (String) before.get("password"))).isTrue();
-        assertThat(users.loadUserByUsername(REGISTER_EMAIL).getAuthorities()).isEmpty();
+        assertThat(users.loadUserByUsername(REGISTER_USERNAME).getAuthorities()).isEmpty();
 
-        configuration.localUser(jdbc, passwords, REGISTER_EMAIL, "different-passphrase").run(null);
-        assertThat(jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL)).isEqualTo(before);
+        configuration.localUser(jdbc, passwords, REGISTER_USERNAME, "different-passphrase").run(null);
+        assertThat(jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_USERNAME)).isEqualTo(before);
     }
 
     @Test
     void localBootstrapDoesNotChangeAnExistingDisabledAccount() throws Exception {
-        jdbc.update("UPDATE users SET name = ?, enabled = false WHERE username = ?", "Memo", EMAIL);
-        var before = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", EMAIL);
+        jdbc.update("UPDATE users SET name = ?, enabled = false WHERE username = ?", "Memo", USERNAME);
+        var before = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", USERNAME);
 
-        new LocalUserConfiguration().localUser(jdbc, passwords, EMAIL, "different-passphrase").run(null);
+        new LocalUserConfiguration().localUser(jdbc, passwords, USERNAME, "different-passphrase").run(null);
 
-        assertThat(jdbc.queryForMap("SELECT * FROM users WHERE username = ?", EMAIL)).isEqualTo(before);
+        assertThat(jdbc.queryForMap("SELECT * FROM users WHERE username = ?", USERNAME)).isEqualTo(before);
     }
 
     @Test
     void duplicatesNeverOverwriteExistingOrDisabledAccounts() {
-        registration.register(new RegistrationRequest("María", REGISTER_EMAIL, "abcdefgh"));
+        registration.register(new RegistrationRequest("María", REGISTER_USERNAME, "abcdefgh"));
         for (boolean enabled : new boolean[] {true, false}) {
-            jdbc.update("UPDATE users SET enabled = ? WHERE username = ?", enabled, REGISTER_EMAIL);
-            var before = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL);
-            for (String email : new String[] {REGISTER_EMAIL, "  MARIA@EXAMPLE.COM  "}) {
-                assertThatThrownBy(() -> registration.register(new RegistrationRequest("Otra", email, "new-password")))
-                        .isInstanceOf(RegistrationService.EmailAlreadyRegisteredException.class);
-                assertThat(jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL)).isEqualTo(before);
+            jdbc.update("UPDATE users SET enabled = ? WHERE username = ?", enabled, REGISTER_USERNAME);
+            var before = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_USERNAME);
+            for (String username : new String[] {REGISTER_USERNAME, "  MARIA  "}) {
+                assertThatThrownBy(() -> registration.register(new RegistrationRequest("Otra", username, "new-password")))
+                        .isInstanceOf(RegistrationService.UsernameAlreadyRegisteredException.class);
+                assertThat(jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_USERNAME)).isEqualTo(before);
             }
         }
     }
@@ -137,11 +137,11 @@ class AuthFlowTest {
     void leavesNoAccountIfSavingTheNameFails() {
         jdbc.execute("ALTER TABLE users ADD CONSTRAINT test_name_failure CHECK (name IS DISTINCT FROM '__fail__')");
         try {
-            assertThatThrownBy(() -> registration.register(new RegistrationRequest("__fail__", REGISTER_EMAIL, "abcdefgh")))
+            assertThatThrownBy(() -> registration.register(new RegistrationRequest("__fail__", REGISTER_USERNAME, "abcdefgh")))
                     .isInstanceOf(DataIntegrityViolationException.class)
-                    .isNotInstanceOf(RegistrationService.EmailAlreadyRegisteredException.class);
+                    .isNotInstanceOf(RegistrationService.UsernameAlreadyRegisteredException.class);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?",
-                    Long.class, REGISTER_EMAIL)).isZero();
+                    Long.class, REGISTER_USERNAME)).isZero();
         } finally {
             jdbc.execute("ALTER TABLE users DROP CONSTRAINT test_name_failure");
         }
@@ -150,50 +150,50 @@ class AuthFlowTest {
     @Test
     void registersWithRealCsrfThenLogsInWithAnEightCharacterPassword() throws Exception {
         var browser = anonymousSession();
-        register(browser, "  María José O'Neill  ", "  MARIA@EXAMPLE.COM  ", "abcdefgh")
+        register(browser, "  María José O'Neill  ", "  MARIA  ", "abcdefgh")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.name").value("María José O'Neill"))
-                .andExpect(jsonPath("$.email").value(REGISTER_EMAIL))
+                .andExpect(jsonPath("$.username").value(REGISTER_USERNAME))
                 .andExpect(jsonPath("$.password").doesNotExist());
-        assertThat(jdbc.queryForObject("SELECT name FROM users WHERE username = ?", String.class, REGISTER_EMAIL))
+        assertThat(jdbc.queryForObject("SELECT name FROM users WHERE username = ?", String.class, REGISTER_USERNAME))
                 .isEqualTo("María José O'Neill");
         mvc.perform(get("/api/auth/me").session(browser.session())).andExpect(status().isUnauthorized());
 
         mvc.perform(post("/api/auth/login").session(browser.session())
                         .header("X-CSRF-TOKEN", browser.token())
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .param("email", "MARIA@EXAMPLE.COM").param("password", "abcdefgh"))
+                        .param("username", "MARIA").param("password", "abcdefgh"))
                 .andExpect(status().isNoContent());
         var me = mvc.perform(get("/api/auth/me").session(browser.session()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value(REGISTER_EMAIL)).andReturn();
+                .andExpect(jsonPath("$.username").value(REGISTER_USERNAME)).andReturn();
         assertThat(json.readTree(me.getResponse().getContentAsString()).size()).isEqualTo(1);
     }
 
     @Test
     void preservesSignificantSpacesInPasswords() throws Exception {
         var browser = anonymousSession();
-        register(browser, "María", REGISTER_EMAIL, "  abcdefgh  ").andExpect(status().isCreated());
+        register(browser, "María", REGISTER_USERNAME, "  abcdefgh  ").andExpect(status().isCreated());
         mvc.perform(post("/api/auth/login").session(browser.session())
                         .header("X-CSRF-TOKEN", browser.token())
-                        .param("email", REGISTER_EMAIL).param("password", "abcdefgh"))
+                        .param("username", REGISTER_USERNAME).param("password", "abcdefgh"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(post("/api/auth/login").session(browser.session())
                         .header("X-CSRF-TOKEN", browser.token())
-                        .param("email", REGISTER_EMAIL).param("password", "  abcdefgh  "))
+                        .param("username", REGISTER_USERNAME).param("password", "  abcdefgh  "))
                 .andExpect(status().isNoContent());
     }
 
     @Test
     void rejectsRegistrationWithoutAValidCsrfTokenAndDoesNotPersist() throws Exception {
-        var body = json.writeValueAsString(Map.of("name", "María", "email", REGISTER_EMAIL, "password", "abcdefgh"));
+        var body = json.writeValueAsString(Map.of("name", "María", "username", REGISTER_USERNAME, "password", "abcdefgh"));
         mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isForbidden());
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?", Long.class, REGISTER_EMAIL)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?", Long.class, REGISTER_USERNAME)).isZero();
         mvc.perform(post("/api/auth/register").with(csrf().useInvalidToken())
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isForbidden());
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?", Long.class, REGISTER_EMAIL))
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?", Long.class, REGISTER_USERNAME))
                 .isZero();
     }
 
@@ -223,13 +223,13 @@ class AuthFlowTest {
             var first = executor.submit(() -> {
                 ready.countDown();
                 assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
-                return register(firstBrowser, "Primera", REGISTER_EMAIL, "first-password")
+                return register(firstBrowser, "Primera", REGISTER_USERNAME, "first-password")
                         .andReturn().getResponse().getStatus();
             });
             var second = executor.submit(() -> {
                 ready.countDown();
                 assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
-                return register(secondBrowser, "Segunda", "  MARIA@EXAMPLE.COM  ", "second-password")
+                return register(secondBrowser, "Segunda", "  MARIA  ", "second-password")
                         .andReturn().getResponse().getStatus();
             });
             assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
@@ -238,13 +238,13 @@ class AuthFlowTest {
             var secondStatus = second.get(20, TimeUnit.SECONDS);
             assertThat(new int[] {firstStatus, secondStatus}).containsExactlyInAnyOrder(201, 409);
 
-            var account = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_EMAIL);
+            var account = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_USERNAME);
             assertThat(account).containsEntry("name", firstStatus == 201 ? "Primera" : "Segunda")
                     .containsEntry("enabled", true);
             var hash = (String) account.get("password");
             assertThat(passwords.matches(firstStatus == 201 ? "first-password" : "second-password", hash)).isTrue();
             assertThat(passwords.matches(firstStatus == 201 ? "second-password" : "first-password", hash)).isFalse();
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?", Long.class, REGISTER_EMAIL))
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?", Long.class, REGISTER_USERNAME))
                     .isEqualTo(1);
         } finally {
             start.countDown();
@@ -269,7 +269,7 @@ class AuthFlowTest {
                             return request;
                         })
                         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                        .param("email", EMAIL).param("password", PASSWORD)
+                        .param("username", USERNAME).param("password", PASSWORD)
                         .header("X-CSRF-TOKEN", oldToken))
                 .andExpect(status().isNoContent())
                 .andExpect(header().doesNotExist(HttpHeaders.LOCATION));
@@ -277,7 +277,7 @@ class AuthFlowTest {
 
         mvc.perform(get("/api/auth/me").session(session))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value(EMAIL))
+                .andExpect(jsonPath("$.username").value(USERNAME))
                 .andExpect(jsonPath("$.password").doesNotExist());
 
         mvc.perform(post("/api/auth/logout").session(session).header("X-CSRF-TOKEN", oldToken))
@@ -292,13 +292,13 @@ class AuthFlowTest {
     }
 
     @Test
-    void acceptsEmailWithoutCaseSensitivity() throws Exception {
+    void acceptsUsernameWithoutCaseSensitivity() throws Exception {
         var result = mvc.perform(post("/api/auth/login").with(csrf())
-                        .param("email", EMAIL.toUpperCase(Locale.ROOT)).param("password", PASSWORD))
+                        .param("username", USERNAME.toUpperCase(Locale.ROOT)).param("password", PASSWORD))
                 .andExpect(status().isNoContent()).andReturn();
         mvc.perform(get("/api/auth/me").session((MockHttpSession) result.getRequest().getSession(false)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value(EMAIL));
+                .andExpect(jsonPath("$.username").value(USERNAME));
     }
 
     @Test
@@ -311,27 +311,30 @@ class AuthFlowTest {
     @Test
     void rejectsWrongCredentialsAndUnknownUsersWithTheSameStatus() throws Exception {
         mvc.perform(post("/api/auth/login").with(csrf())
-                        .param("email", EMAIL).param("password", "wrong-password"))
+                        .param("email", USERNAME).param("password", PASSWORD))
                 .andExpect(status().isUnauthorized());
         mvc.perform(post("/api/auth/login").with(csrf())
-                        .param("email", "missing@example.com").param("password", PASSWORD))
+                        .param("username", USERNAME).param("password", "wrong-password"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/auth/login").with(csrf())
+                        .param("username", "missing").param("password", PASSWORD))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
     void rejectsDisabledAccounts() throws Exception {
-        jdbc.update("UPDATE users SET enabled = false WHERE username = ?", EMAIL);
+        jdbc.update("UPDATE users SET enabled = false WHERE username = ?", USERNAME);
         mvc.perform(post("/api/auth/login").with(csrf())
-                        .param("email", EMAIL).param("password", PASSWORD))
+                        .param("username", USERNAME).param("password", PASSWORD))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
     void rejectsLoginWithoutAValidCsrfToken() throws Exception {
-        mvc.perform(post("/api/auth/login").param("email", EMAIL).param("password", PASSWORD))
+        mvc.perform(post("/api/auth/login").param("username", USERNAME).param("password", PASSWORD))
                 .andExpect(status().isForbidden());
         mvc.perform(post("/api/auth/login").with(csrf().useInvalidToken())
-                        .param("email", EMAIL).param("password", PASSWORD))
+                        .param("username", USERNAME).param("password", PASSWORD))
                 .andExpect(status().isForbidden());
     }
 
@@ -356,10 +359,10 @@ class AuthFlowTest {
                 json.readTree(result.getResponse().getContentAsString()).get("token").asText());
     }
 
-    private ResultActions register(CsrfSession browser, String name, String email, String password) throws Exception {
+    private ResultActions register(CsrfSession browser, String name, String username, String password) throws Exception {
         return mvc.perform(post("/api/auth/register").session(browser.session())
                 .header("X-CSRF-TOKEN", browser.token()).contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsString(Map.of("name", name, "email", email, "password", password))));
+                .content(json.writeValueAsString(Map.of("name", name, "username", username, "password", password))));
     }
 
     private record CsrfSession(MockHttpSession session, String token) {

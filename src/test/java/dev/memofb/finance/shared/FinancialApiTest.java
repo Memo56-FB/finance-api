@@ -286,10 +286,10 @@ class FinancialApiTest extends FinancialTestSupport {
         var anonymous=mvc.perform(get("/api/auth/csrf")).andExpect(status().isOk()).andReturn();
         var session=(org.springframework.mock.web.MockHttpSession)anonymous.getRequest().getSession(false);
         var token=json.readTree(anonymous.getResponse().getContentAsString()).get("token").asString();
-        var registration=Map.of("name","New user","email","flow@example.com","password","integration-test-passphrase");
+        var registration=Map.of("name","New user","username","flow","password","integration-test-passphrase");
         mvc.perform(post("/api/auth/register").session(session).header("X-CSRF-TOKEN",token).contentType("application/json").content(json.writeValueAsString(registration)))
                 .andExpect(status().isCreated());
-        mvc.perform(post("/api/auth/login").session(session).header("X-CSRF-TOKEN",token).param("email","flow@example.com").param("password","integration-test-passphrase"))
+        mvc.perform(post("/api/auth/login").session(session).header("X-CSRF-TOKEN",token).param("username","flow").param("password","integration-test-passphrase"))
                 .andExpect(status().isNoContent());
         var csrf=mvc.perform(get("/api/auth/csrf").session(session)).andReturn();
         token=json.readTree(csrf.getResponse().getContentAsString()).get("token").asString();

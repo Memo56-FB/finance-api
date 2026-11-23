@@ -32,8 +32,8 @@ class FinancialMigrationTest {
                 """);
         var before = jdbc.queryForList("SELECT * FROM savings_pots ORDER BY id");
         var users = jdbc.queryForList("SELECT * FROM users ORDER BY username");
-        flyway = Flyway.configure().dataSource(ds).load();
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(2);
+        flyway = Flyway.configure().dataSource(ds).target("5").load();
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         assertThat(jdbc.queryForList("SELECT * FROM savings_pots ORDER BY id")).isEqualTo(before);
         assertThat(jdbc.queryForList("SELECT * FROM users ORDER BY username")).isEqualTo(users);

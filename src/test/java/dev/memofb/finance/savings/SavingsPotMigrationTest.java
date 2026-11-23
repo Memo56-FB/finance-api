@@ -30,7 +30,7 @@ class SavingsPotMigrationTest {
                 "existing@example.com", "unchanged-test-hash", "Existing user");
         var before = jdbc.queryForMap("SELECT * FROM existing.users");
 
-        Flyway.configure().dataSource(dataSource).schemas("existing").defaultSchema("existing").load().migrate();
+        Flyway.configure().dataSource(dataSource).schemas("existing").defaultSchema("existing").target("4").load().migrate();
 
         assertThat(jdbc.queryForMap("SELECT * FROM existing.users")).isEqualTo(before);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM existing.savings_pots", Long.class)).isZero();

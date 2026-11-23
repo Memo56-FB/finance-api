@@ -46,12 +46,12 @@ class LocalSwaggerConfiguration {
     OpenAPI localOpenApi() {
         // Login and logout are Spring Security filters, so controller scanning cannot describe their contract.
         var login = new Operation().operationId("login").tags(List.of("auth-controller"))
-                .summary("Log in with email and password")
+                .summary("Log in with username and password")
                 .requestBody(new RequestBody().required(true).content(new Content().addMediaType(
                         APPLICATION_FORM_URLENCODED_VALUE, new MediaType().schema(new ObjectSchema()
-                                .addProperty("email", new StringSchema().format("email"))
+                                .addProperty("username", new StringSchema())
                                 .addProperty("password", new StringSchema().format("password").writeOnly(true))
-                                .required(List.of("email", "password"))))))
+                                .required(List.of("username", "password"))))))
                 .responses(new ApiResponses().addApiResponse("204", new ApiResponse().description("Authenticated"))
                         .addApiResponse("401", new ApiResponse().description("Invalid credentials"))
                         .addApiResponse("403", new ApiResponse().description("Invalid CSRF token")));

@@ -19,16 +19,16 @@ class RegistrationService {
         var hash = passwords.encode(request.password());
         try {
             jdbc.update("INSERT INTO users (username, password, enabled, name) VALUES (?, ?, true, ?)",
-                    request.email(), hash, request.name());
+                    request.username(), hash, request.name());
         } catch (DuplicateKeyException exception) {
-            throw new EmailAlreadyRegisteredException();
+            throw new UsernameAlreadyRegisteredException();
         }
-        return new RegisteredUser(request.name(), request.email());
+        return new RegisteredUser(request.name(), request.username());
     }
 
-    record RegisteredUser(String name, String email) {
+    record RegisteredUser(String name, String username) {
     }
 
-    static class EmailAlreadyRegisteredException extends RuntimeException {
+    static class UsernameAlreadyRegisteredException extends RuntimeException {
     }
 }

@@ -1,7 +1,7 @@
 # financeApi
 
 Backend mínimo de financeApp con Java 25, Spring Boot 4.1.2 y paquete base `dev.memofb.finance`.
-Autenticación por correo y contraseña con sesiones de Spring Security, contraseñas BCrypt y usuarios en PostgreSQL.
+Autenticación por nombre de usuario y contraseña con sesiones de Spring Security, contraseñas BCrypt y usuarios en PostgreSQL.
 
 ## Desarrollo local
 
@@ -11,7 +11,7 @@ Requisitos: JDK 25 y Docker con Compose. Maven se descarga mediante el wrapper.
 cp .env.example .env
 ```
 
-Edita `.env`: configura una contraseña para PostgreSQL y el correo y contraseña de tu primer usuario.
+En `.env`, configura la contraseña de PostgreSQL y las credenciales de tu primer usuario.
 La contraseña del usuario debe tener al menos 12 caracteres y como máximo 72 bytes UTF-8, por el límite de BCrypt.
 Conserva las comillas simples para que el archivo también pueda cargarse en la terminal.
 
@@ -28,6 +28,11 @@ La migración V2 agrega el nombre del usuario y V3 elimina la antigua tabla `aut
 las cuentas y sus credenciales. La autenticación no usa roles ni permisos. Las cuentas anteriores y el usuario inicial local pueden
 conservar el nombre vacío (`NULL`); el endpoint de registro exige un nombre para las cuentas nuevas.
 El perfil `local` crea el primer usuario si todavía no existe; reiniciar no cambia su contraseña.
+En un entorno local existente, cambia `FINANCE_BOOTSTRAP_EMAIL` por `FINANCE_BOOTSTRAP_USERNAME` en
+`.env` y usa el nombre migrado. Flyway V7 toma la parte anterior a `@`, sustituye cada grupo de caracteres
+no admitidos por `_` y conserva los nombres válidos existentes. Si hay coincidencias, asigna los sufijos
+`_2`, `_3`, etc., en orden del identificador anterior. Puedes consultar los nombres asignados con
+`SELECT username, name FROM users ORDER BY username;`. Las contraseñas y los datos financieros se conservan.
 Ese perfil permite cookies por HTTP y solo escucha en la interfaz local.
 Fuera de `local`, las cookies requieren HTTPS y no se crea ningún usuario automáticamente.
 
@@ -45,7 +50,7 @@ Swagger UI muestra los servicios de autenticación y apartados con **Try it out 
 La especificación OpenAPI está en `/v3/api-docs`. Se utiliza springdoc 3.2.0, compatible con Spring Boot 4.1
 según su [matriz de compatibilidad](https://springdoc.org/faq.html#what-is-the-compatibility-matrix-of-springdoc-openapi-with-spring-boot).
 
-1. Ejecuta `POST /api/auth/login` con el correo y contraseña de una cuenta existente. Usa los campos del
+1. Ejecuta `POST /api/auth/login` con el nombre de usuario y la contraseña de una cuenta existente. Usa los campos del
    formulario que muestra Swagger; responde `204`. También puedes crear una cuenta con `/api/auth/register`.
 2. Comprueba tu sesión con `GET /api/auth/me` y prueba los endpoints de apartados.
 3. Ejecuta `POST /api/auth/logout` para cerrar la sesión.
@@ -61,9 +66,9 @@ CSRF y la autenticación de los servicios siguen activos.
 
 ## Contrato de autenticación
 
-El registro requiere `name`, `email` y `password`. El nombre se recorta en sus extremos y debe tener de 1 a 100
-caracteres; conserva acentos y espacios interiores. El email se recorta, convierte a minúsculas y valida como
-dirección de correo, con un máximo de 254 caracteres y sin duplicados. La contraseña requiere al menos **8
+El registro requiere `name`, `username` y `password`. El nombre se recorta en sus extremos y debe tener de 1 a 100
+caracteres; conserva acentos y espacios interiores. El nombre de usuario es único, se recorta y se guarda en minúsculas.
+Admite de 1 a 254 caracteres ASCII entre letras, números, puntos, guiones y guiones bajos. La contraseña requiere al menos **8
 caracteres** y como máximo **72 bytes UTF-8**; no se recorta ni se exigen reglas adicionales de composición.
 Las longitudes de texto siguen las unidades UTF-16 de Java; el límite de la contraseña se mide en bytes aparte.
 El mínimo de 12 caracteres descrito para desarrollo local corresponde únicamente al usuario inicial de ese perfil.
@@ -71,9 +76,9 @@ El mínimo de 12 caracteres descrito para desarrollo local corresponde únicamen
 | Método | Endpoint | Resultado |
 | --- | --- | --- |
 | GET | `/api/auth/csrf` | `200` con `token`, `headerName` y `parameterName`; disponible antes del login. |
-| POST | `/api/auth/register` | JSON con `name`, `email` y `password`; `201` con nombre y email normalizados. No inicia sesión. |
-| POST | `/api/auth/login` | Formulario con `email` y `password`; `204` si son correctos, `401` si no. |
-| GET | `/api/auth/me` | `200` con `{ "email": "..." }`; `401` sin sesión. |
+| POST | `/api/auth/register` | JSON con `name`, `username` y `password`; `201` con `name` y `username` normalizados. No inicia sesión. |
+| POST | `/api/auth/login` | Formulario con `username` y `password`; `204` si son correctos, `401` si no. |
+| GET | `/api/auth/me` | `200` con `{ "username": "..." }`; `401` sin sesión. |
 | POST | `/api/auth/logout` | Invalida la sesión y elimina la cookie; responde `204`. |
 
 Los POST requieren el token CSRF en el encabezado indicado por `/api/auth/csrf`.
@@ -81,8 +86,8 @@ Un token ausente o inválido devuelve `403`. Los errores de autenticación no de
 Login usa `application/x-www-form-urlencoded`; las respuestas de login y logout no tienen cuerpo ni redirección.
 
 Registro usa `application/json`. Una respuesta correcta es
-`{ "name": "María José", "email": "maria@example.com" }`, sin contraseña ni hash.
-Los datos inválidos o un cuerpo JSON ilegible devuelven `400`; un email ya registrado, incluso de una cuenta
+`{ "name": "María José", "username": "maria" }`, sin contraseña ni hash.
+Los datos inválidos o un cuerpo JSON ilegible devuelven `400`; un nombre de usuario ya registrado, incluso de una cuenta
 deshabilitada, devuelve `409` y conserva la cuenta existente. Ambos usan `application/problem+json` con `status`,
 `title` y `detail`. Los errores de validación incluyen `errors`, por ejemplo
 `[{ "field": "password", "message": "La contraseña debe tener al menos 8 caracteres" }]`, sin repetir el valor
@@ -93,7 +98,7 @@ El frontend debe usar `credentials: 'include'` en todas las llamadas y obtener u
 login o logout. CORS permite únicamente `http://localhost:3000`; usa `FINANCE_FRONTEND_ORIGIN` si cambia ese origen.
 La integración con el formulario de `financeFront` queda para el siguiente cambio.
 
-Ejemplo de CSRF → registro → login para ejecutar con un email nuevo en la consola del navegador,
+Ejemplo de CSRF → registro → login para ejecutar con un nombre de usuario nuevo en la consola del navegador,
 desde `http://localhost:3000`:
 
 ```javascript
@@ -103,7 +108,7 @@ const csrf = await fetch(`${api}/api/auth/csrf`, {
 }).then(response => response.json())
 
 const name = prompt('Nombre')
-const email = prompt('Correo')
+const username = prompt('Nombre de usuario')
 const password = prompt('Contraseña')
 const registration = await fetch(`${api}/api/auth/register`, {
   method: 'POST',
@@ -112,7 +117,7 @@ const registration = await fetch(`${api}/api/auth/register`, {
     'Content-Type': 'application/json',
     [csrf.headerName]: csrf.token,
   },
-  body: JSON.stringify({ name, email, password }),
+  body: JSON.stringify({ name, username, password }),
 })
 if (!registration.ok) throw new Error(`Registro rechazado: ${registration.status}`)
 console.log(registration.status, await registration.json())
@@ -122,7 +127,7 @@ const login = await fetch(`${api}/api/auth/login`, {
   credentials: 'include',
   headers: { [csrf.headerName]: csrf.token },
   body: new URLSearchParams({
-    email: email.trim().toLowerCase(),
+    username,
     password,
   }),
 })

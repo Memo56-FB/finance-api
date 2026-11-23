@@ -27,12 +27,12 @@ public class SecurityConfiguration {
 
     @Bean
     UserDetailsService users(JdbcTemplate jdbc) {
-        return email -> jdbc.query("SELECT username, password, enabled FROM users WHERE username = lower(?)",
+        return username -> jdbc.query("SELECT username, password, enabled FROM users WHERE username = ?",
                 (row, index) -> User.withUsername(row.getString("username"))
                         .password(row.getString("password"))
                         .disabled(!row.getBoolean("enabled"))
                         .authorities(List.of())
-                        .build(), email).stream().findFirst()
+                        .build(), RegistrationRequest.normalizeUsername(username)).stream().findFirst()
                 .orElseThrow(() -> new UsernameNotFoundException("Invalid credentials"));
     }
 
@@ -55,7 +55,6 @@ public class SecurityConfiguration {
                 .formLogin(form -> form
                         .loginPage("/api/auth/login")
                         .loginProcessingUrl("/api/auth/login")
-                        .usernameParameter("email")
                         .successHandler((request, response, authentication) -> response.setStatus(204))
                         .failureHandler((request, response, exception) -> response.setStatus(401))
                         .permitAll())

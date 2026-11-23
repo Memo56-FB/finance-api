@@ -40,7 +40,7 @@ class SubscriptionIntervalMigrationTest {
         var payments=jdbc.queryForList("SELECT * FROM recurring_payments ORDER BY id");
         var occurrences=jdbc.queryForList("SELECT * FROM recurring_payment_occurrences");
         var transactions=jdbc.queryForList("SELECT * FROM transactions");
-        var flyway=Flyway.configure().dataSource(dataSource).load();
+        var flyway=Flyway.configure().dataSource(dataSource).target("6").load();
         assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         var migrated=jdbc.queryForList("SELECT * FROM recurring_payments ORDER BY id");

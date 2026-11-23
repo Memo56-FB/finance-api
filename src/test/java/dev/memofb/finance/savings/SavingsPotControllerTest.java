@@ -50,7 +50,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WithMockUser(username = SavingsPotControllerTest.OWNER, roles = {})
 class SavingsPotControllerTest {
 
-    static final String OWNER = "owner@example.com";
+    static final String OWNER = "owner";
     static final String BASE = "/api/savings-pots";
     static final String VALID = "{\"name\":\"Emergency fund\",\"targetAmount\":100.00,\"color\":\"#AABBCC\"}";
     static final SavingsPotResponse POT = new SavingsPotResponse(1, "Emergency fund", new BigDecimal("100.00"),
@@ -72,7 +72,7 @@ class SavingsPotControllerTest {
     void createsFromTheSessionAndReturnsOnlyThePublicFields() throws Exception {
         given(pots.create(eq(OWNER), any())).willReturn(POT);
         var body = "{\"name\":\"  Emergency fund  \",\"targetAmount\":100.00,\"color\":\"#aabbcc\","
-                + "\"username\":\"other@example.com\",\"balance\":999.00,\"deletedAt\":\"2020-01-01T00:00:00Z\"}";
+                + "\"username\":\"other\",\"balance\":999.00,\"deletedAt\":\"2020-01-01T00:00:00Z\"}";
         var result = mvc.perform(post(BASE).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated()).andExpect(header().string(HttpHeaders.LOCATION, BASE + "/1"))
                 .andExpect(jsonPath("$.balance").value(0)).andExpect(jsonPath("$.name").value("Emergency fund"))

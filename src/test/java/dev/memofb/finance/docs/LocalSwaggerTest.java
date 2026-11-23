@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {"spring.datasource.password=integration-test-only", "finance.recurring-payments.scheduling-enabled=false",
-        "finance.bootstrap.email=swagger@example.com", "finance.bootstrap.password=swagger-test-passphrase"})
+        "finance.bootstrap.username=swagger", "finance.bootstrap.password=swagger-test-passphrase"})
 @ActiveProfiles("local")
 @AutoConfigureMockMvc
 @Testcontainers
@@ -56,7 +56,7 @@ class LocalSwaggerTest {
                 .andReturn().getResponse().getContentAsString();
         var paths = json.readTree(document).get("paths");
         assertThat(paths.get("/api/auth/login").get("post").get("requestBody").get("content")
-                .get("application/x-www-form-urlencoded").get("schema").get("properties").has("email")).isTrue();
+                .get("application/x-www-form-urlencoded").get("schema").get("properties").has("username")).isTrue();
         assertThat(paths.get("/api/auth/login").get("post").get("responses").has("204")).isTrue();
         assertThat(paths.get("/api/auth/logout").get("post").get("responses").has("204")).isTrue();
         assertThat(paths.get("/api/auth/register").has("post")).isTrue();
@@ -90,7 +90,7 @@ class LocalSwaggerTest {
         var session = (MockHttpSession) first.getRequest().getSession(false);
         var token = json.readTree(first.getResponse().getContentAsString()).get("token").asText();
         mvc.perform(post("/api/auth/login").session(session).header("X-CSRF-TOKEN", token)
-                        .param("email", "swagger@example.com").param("password", "swagger-test-passphrase"))
+                        .param("username", "swagger").param("password", "swagger-test-passphrase"))
                 .andExpect(status().isNoContent());
         mvc.perform(post("/api/savings-pots").session(session).header("X-CSRF-TOKEN", token)
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))

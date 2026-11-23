@@ -45,7 +45,7 @@ class UserNameMigrationTest {
         var disabled = jdbc.queryForMap("SELECT * FROM legacy.users WHERE username = ?", "disabled@example.com");
 
         Flyway.configure().dataSource(dataSource).schemas("legacy").defaultSchema("legacy")
-                .load().migrate();
+                .target("3").load().migrate();
 
         assertThat(jdbc.queryForObject("SELECT to_regclass('legacy.authorities')", String.class)).isNull();
         assertThat(jdbc.queryForMap("SELECT * FROM legacy.users WHERE username = ?", "legacy@example.com"))

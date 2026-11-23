@@ -16,16 +16,16 @@ class LocalUserConfigurationTest {
             PasswordEncoderFactories.createDelegatingPasswordEncoder();
 
     @Test
-    void rejectsBlankOrOversizedEmailAndUnsafeBootstrapPasswords() {
+    void rejectsBlankOrOversizedUsernameAndUnsafeBootstrapPasswords() {
         assertThatIllegalArgumentException().isThrownBy(() -> configuration.localUser(
                 jdbc, passwords, " ", "local-test-passphrase"));
         assertThatIllegalArgumentException().isThrownBy(() -> configuration.localUser(
                 jdbc, passwords, "a".repeat(255), "local-test-passphrase"));
         assertThatIllegalArgumentException().isThrownBy(() -> configuration.localUser(
-                jdbc, passwords, "memo@example.com", "short"));
+                jdbc, passwords, "memo", "short"));
         assertThatIllegalArgumentException().isThrownBy(() -> configuration.localUser(
-                jdbc, passwords, "memo@example.com", " ".repeat(12)));
+                jdbc, passwords, "memo", " ".repeat(12)));
         assertThatIllegalArgumentException().isThrownBy(() -> configuration.localUser(
-                jdbc, passwords, "memo@example.com", "é".repeat(40)));
+                jdbc, passwords, "memo", "é".repeat(40)));
     }
 }

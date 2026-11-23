@@ -1,7 +1,6 @@
 package dev.memofb.finance.auth;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
@@ -18,11 +17,12 @@ class LocalUserConfiguration {
 
     @Bean
     ApplicationRunner localUser(JdbcTemplate jdbc, PasswordEncoder passwords,
-            @Value("${finance.bootstrap.email}") String email,
+            @Value("${finance.bootstrap.username}") String configuredUsername,
             @Value("${finance.bootstrap.password}") String password) {
-        var username = email.strip().toLowerCase(Locale.ROOT);
-        Assert.hasText(username, "FINANCE_BOOTSTRAP_EMAIL must not be blank");
-        Assert.isTrue(username.length() <= 254, "FINANCE_BOOTSTRAP_EMAIL is too long");
+        var username = RegistrationRequest.normalizeUsername(configuredUsername);
+        Assert.isTrue(username != null && username.matches(RegistrationRequest.USERNAME_PATTERN),
+                "FINANCE_BOOTSTRAP_USERNAME must contain only letters, numbers, dots, underscores or hyphens");
+        Assert.isTrue(username.length() <= 254, "FINANCE_BOOTSTRAP_USERNAME is too long");
         Assert.hasText(password, "FINANCE_BOOTSTRAP_PASSWORD must not be blank");
         Assert.isTrue(password.length() >= 12 && password.getBytes(StandardCharsets.UTF_8).length <= 72,
                 "FINANCE_BOOTSTRAP_PASSWORD must have at least 12 characters and at most 72 UTF-8 bytes");

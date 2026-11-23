@@ -26,7 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 @Import(FinancialTestSupport.Database.class)
 public abstract class FinancialTestSupport {
-    protected static final String OWNER="owner@example.com", OTHER="other@example.com";
+    protected static final String OWNER="owner", OTHER="other";
     protected static final Instant NOW=Instant.parse("2027-03-20T12:00:00Z");
     @Autowired protected JdbcTemplate jdbc;
     @Autowired protected MockMvc mvc;

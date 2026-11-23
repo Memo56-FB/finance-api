@@ -56,8 +56,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Testcontainers
 class SavingsPotServiceTest {
 
-    static final String OWNER = "owner@example.com";
-    static final String OTHER = "other@example.com";
+    static final String OWNER = "owner";
+    static final String OTHER = "other";
     static final Instant NOW = Instant.parse("2026-11-14T00:00:00.123456Z");
 
     @Container
@@ -94,8 +94,8 @@ class SavingsPotServiceTest {
         jdbc.update("DELETE FROM transactions");
         jdbc.update("DELETE FROM savings_pots");
         jdbc.update("DELETE FROM users");
-        for (var email : new String[] {OWNER, OTHER}) {
-            jdbc.update("INSERT INTO users (username, password, enabled) VALUES (?, 'test-only', true)", email);
+        for (var username : new String[] {OWNER, OTHER}) {
+            jdbc.update("INSERT INTO users (username, password, enabled) VALUES (?, 'test-only', true)", username);
         }
     }
 
@@ -322,7 +322,7 @@ class SavingsPotServiceTest {
         var other = login(OTHER);
         var base = "/api/savings-pots";
         var metadata = "{\"name\":\"  Emergency fund  \",\"targetAmount\":100.00,\"color\":\"#aabbcc\","
-                + "\"username\":\"other@example.com\",\"balance\":999.00}";
+                + "\"username\":\"other\",\"balance\":999.00}";
         var created = mvc.perform(as(owner, post(base).contentType(MediaType.APPLICATION_JSON).content(metadata)))
                 .andExpect(status().isCreated()).andExpect(jsonPath("$.balance").value(0))
                 .andExpect(jsonPath("$.name").value("Emergency fund")).andReturn();
@@ -367,12 +367,12 @@ class SavingsPotServiceTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM savings_pots", Long.class)).isEqualTo(1);
     }
 
-    private Browser login(String email) throws Exception {
+    private Browser login(String username) throws Exception {
         var anonymous = mvc.perform(get("/api/auth/csrf")).andExpect(status().isOk()).andReturn();
         var session = (MockHttpSession) anonymous.getRequest().getSession(false);
         var token = json.readTree(anonymous.getResponse().getContentAsString()).get("token").asText();
         mvc.perform(post("/api/auth/login").session(session).header("X-CSRF-TOKEN", token)
-                        .param("email", email).param("password", "integration-test-passphrase"))
+                        .param("username", username).param("password", "integration-test-passphrase"))
                 .andExpect(status().isNoContent()).andExpect(header().doesNotExist(HttpHeaders.LOCATION));
         var fresh = mvc.perform(get("/api/auth/csrf").session(session)).andExpect(status().isOk()).andReturn();
         return new Browser(session, json.readTree(fresh.getResponse().getContentAsString()).get("token").asText());
