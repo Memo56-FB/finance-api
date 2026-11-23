@@ -14,9 +14,10 @@ class TransactionController {
     private final TransactionService service;
     TransactionController(TransactionService service) { this.service=service; }
     @GetMapping PageResponse<TransactionResponse> list(Principal user,@RequestParam(required=false) String search,
-            @RequestParam(required=false) @Positive Long categoryId,
+            @RequestParam(required=false) @Positive Long categoryId, @RequestParam(required=false) String month,
             @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size,@RequestParam(defaultValue="newest") String sort) {
-        return service.list(user.getName(),new ListQuery(search,page,size,sort),categoryId);
+        return service.list(user.getName(),new ListQuery(search,page,size,sort),categoryId,
+                month == null ? null : BusinessCalendar.parseMonth(month));
     }
     @GetMapping("/{id}") TransactionResponse get(Principal user,@PathVariable @Positive long id) { return service.get(user.getName(),id); }
     @PostMapping ResponseEntity<TransactionResponse> create(Principal user,@Valid @RequestBody TransactionRequest request) {

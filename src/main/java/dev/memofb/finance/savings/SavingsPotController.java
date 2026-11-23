@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -27,8 +28,8 @@ class SavingsPotController {
     }
 
     @GetMapping
-    SavingsPotListResponse list(Principal principal) {
-        return pots.list(principal.getName());
+    SavingsPotListResponse list(Principal principal, @RequestParam(required = false) String month) {
+        return pots.list(principal.getName(), month);
     }
 
     @GetMapping("/{id}")

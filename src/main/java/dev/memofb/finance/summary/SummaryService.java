@@ -18,7 +18,11 @@ class SummaryService {
         lock.acquire(owner); repository.save(owner,settings); return settings;
     }
     @Transactional(readOnly=true, isolation=Isolation.REPEATABLE_READ)
-    public FinancialSummaryResponse summary(String owner) {
+    public FinancialSummaryResponse summary(String owner, String month) {
+        if (month != null) {
+            var selected = BusinessCalendar.parseMonth(month);
+            return repository.summary(owner, new ReportingPeriod(selected.atDay(1), selected.plusMonths(1).atDay(1)));
+        }
         var today=calendar.today();
         return repository.summary(owner, ReportingPeriod.containing(today, repository.settings(owner)));
     }

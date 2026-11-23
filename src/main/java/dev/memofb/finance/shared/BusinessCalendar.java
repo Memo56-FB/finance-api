@@ -21,8 +21,11 @@ public class BusinessCalendar {
     public YearMonth month() { return YearMonth.from(today()); }
 
     public YearMonth month(String value) {
-        if (value == null) return month();
-        if (!value.matches("[0-9]{4}-(0[1-9]|1[0-2])")) throw FinancialException.badRequest("month must be YYYY-MM");
+        return value == null ? month() : parseMonth(value);
+    }
+
+    public static YearMonth parseMonth(String value) {
+        if (value.startsWith("0000") || !value.matches("[0-9]{4}-(0[1-9]|1[0-2])")) throw FinancialException.badRequest("month must be YYYY-MM");
         return YearMonth.parse(value);
     }
 }

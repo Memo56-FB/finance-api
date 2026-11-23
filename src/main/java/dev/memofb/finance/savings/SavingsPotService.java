@@ -36,9 +36,11 @@ class SavingsPotService {
         return SavingsPotResponse.from(pots.create(username, request.name(), request.targetAmount(), request.color()));
     }
 
-    public SavingsPotListResponse list(String username) {
+    public SavingsPotListResponse list(String username, String month) {
         // shortcut: Returns all active pots; add pagination when per-user volume requires it.
-        var items = pots.listActive(username).stream().map(SavingsPotResponse::from).toList();
+        var rows = month == null ? pots.listActive(username)
+                : pots.balancesBefore(username, BusinessCalendar.parseMonth(month).plusMonths(1).atDay(1));
+        var items = rows.stream().map(SavingsPotResponse::from).toList();
         var total = items.stream().map(SavingsPotResponse::balance).reduce(BigDecimal.ZERO, BigDecimal::add);
         return new SavingsPotListResponse(items, total);
     }

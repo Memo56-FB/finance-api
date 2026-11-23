@@ -9,7 +9,9 @@ import org.springframework.web.bind.annotation.*;
 class SummaryController {
     private final SummaryService service;
     SummaryController(SummaryService service) { this.service=service; }
-    @GetMapping FinancialSummaryResponse summary(Principal user) { return service.summary(user.getName()); }
+    @GetMapping FinancialSummaryResponse summary(Principal user, @RequestParam(required = false) String month) {
+        return service.summary(user.getName(), month);
+    }
     @GetMapping("/settings") SummarySettings settings(Principal user) { return service.settings(user.getName()); }
     @PutMapping("/settings") SummarySettings save(Principal user, @Valid @RequestBody SummarySettings request) {
         return service.save(user.getName(),request);

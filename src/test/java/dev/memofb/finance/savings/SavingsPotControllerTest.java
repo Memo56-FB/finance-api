@@ -83,7 +83,7 @@ class SavingsPotControllerTest {
 
     @Test
     void listsGetsAndUpdatesUsingTheSessionOwner() throws Exception {
-        given(pots.list(OWNER)).willReturn(new SavingsPotListResponse(List.of(POT), BigDecimal.ZERO));
+        given(pots.list(OWNER, null)).willReturn(new SavingsPotListResponse(List.of(POT), BigDecimal.ZERO));
         given(pots.get(OWNER, 1)).willReturn(POT);
         given(pots.update(eq(OWNER), eq(1L), any())).willReturn(POT);
         mvc.perform(get(BASE)).andExpect(status().isOk()).andExpect(jsonPath("$.items[0].id").value(1))

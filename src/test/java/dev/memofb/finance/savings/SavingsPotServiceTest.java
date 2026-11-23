@@ -101,8 +101,8 @@ class SavingsPotServiceTest {
 
     @Test
     void createsMultiplePotsAndListsOnlyActiveOwnedBalances() {
-        assertThat(service.list(OWNER).items()).isEmpty();
-        assertThat(service.list(OWNER).totalBalance()).isZero();
+        assertThat(service.list(OWNER, null).items()).isEmpty();
+        assertThat(service.list(OWNER, null).totalBalance()).isZero();
         var first = create(OWNER);
         var second = create(OWNER);
         var deleted = create(OWNER);
@@ -114,7 +114,7 @@ class SavingsPotServiceTest {
         repository.updateDeletedAt(OWNER, deleted.id(), Instant.parse("2026-11-14T00:00:00Z"));
         repository.updateBalance(OTHER, other.id(), new BigDecimal("700.00"));
 
-        var list = service.list(OWNER);
+        var list = service.list(OWNER, null);
         assertThat(list.items()).extracting(SavingsPotResponse::id).containsExactly(first.id(), second.id());
         assertThat(list.totalBalance()).isEqualByComparingTo("120.30");
         assertThatThrownBy(() -> service.get(OTHER, first.id())).isInstanceOf(SavingsPotService.NotFoundException.class);
@@ -145,7 +145,7 @@ class SavingsPotServiceTest {
         for (int index = 0; index < 2; index++) {
             repository.updateBalance(OWNER, create(OWNER).id(), max);
         }
-        assertThat(service.list(OWNER).totalBalance()).isEqualByComparingTo(max.multiply(BigDecimal.TWO));
+        assertThat(service.list(OWNER, null).totalBalance()).isEqualByComparingTo(max.multiply(BigDecimal.TWO));
     }
 
     @Test
@@ -155,7 +155,7 @@ class SavingsPotServiceTest {
         assertThat(service.deposit(OWNER, pot.id(), new BigDecimal("0.20")).balance()).isEqualByComparingTo("0.30");
         assertThat(service.deposit(OWNER, pot.id(), new BigDecimal("200.00")).balance()).isEqualByComparingTo("200.30");
         assertThat(service.withdraw(OWNER, pot.id(), new BigDecimal("20.20")).balance()).isEqualByComparingTo("180.10");
-        assertThat(service.list(OWNER).totalBalance()).isEqualByComparingTo("180.10");
+        assertThat(service.list(OWNER, null).totalBalance()).isEqualByComparingTo("180.10");
         assertThat(service.withdraw(OWNER, pot.id(), new BigDecimal("180.10")).balance()).isZero();
     }
 
@@ -213,8 +213,8 @@ class SavingsPotServiceTest {
         var deletion = service.delete(OWNER, pot.id());
         assertThat(deletion.deletedAt()).isEqualTo(NOW);
         assertThat(deletion.restoreUntil()).isEqualTo(NOW.plusSeconds(10));
-        assertThat(service.list(OWNER).items()).isEmpty();
-        assertThat(service.list(OWNER).totalBalance()).isZero();
+        assertThat(service.list(OWNER, null).items()).isEmpty();
+        assertThat(service.list(OWNER, null).totalBalance()).isZero();
         assertThatThrownBy(() -> service.get(OWNER, pot.id())).isInstanceOf(SavingsPotService.NotFoundException.class);
         assertThat(repository.lock(OWNER, pot.id()).orElseThrow().balance()).isEqualByComparingTo("150.00");
 
@@ -223,7 +223,7 @@ class SavingsPotServiceTest {
         when(clock.instant()).thenReturn(NOW.plusSeconds(9));
         assertThat(service.restore(OWNER, pot.id())).isEqualTo(before);
         assertThat(service.restore(OWNER, pot.id())).isEqualTo(before);
-        assertThat(service.list(OWNER).totalBalance()).isEqualByComparingTo("150.00");
+        assertThat(service.list(OWNER, null).totalBalance()).isEqualByComparingTo("150.00");
         assertThatThrownBy(() -> service.delete(OTHER, pot.id())).isInstanceOf(SavingsPotService.NotFoundException.class);
         assertThatThrownBy(() -> service.restore(OTHER, pot.id())).isInstanceOf(SavingsPotService.NotFoundException.class);
     }
@@ -245,7 +245,7 @@ class SavingsPotServiceTest {
                 .isInstanceOf(SavingsPotService.ConflictException.class);
         assertThat(repository.lock(OWNER, id).orElseThrow().deletedAt()).isEqualTo(deletion.deletedAt());
         assertThat(repository.lock(OWNER, id).orElseThrow().balance()).isEqualByComparingTo("10.00");
-        assertThat(service.list(OWNER).totalBalance()).isZero();
+        assertThat(service.list(OWNER, null).totalBalance()).isZero();
     }
 
     @Test
@@ -255,7 +255,7 @@ class SavingsPotServiceTest {
         service.delete(OWNER, id);
         assertThat(concurrently(() -> service.restore(OWNER, id), () -> service.restore(OWNER, id)))
                 .containsExactly(before, before);
-        assertThat(service.list(OWNER).totalBalance()).isEqualByComparingTo("10.00");
+        assertThat(service.list(OWNER, null).totalBalance()).isEqualByComparingTo("10.00");
     }
 
     @Test
@@ -276,7 +276,7 @@ class SavingsPotServiceTest {
         assertThat(results.get(1)).isEqualTo("deleted");
         assertThat(repository.lock(OWNER, id).orElseThrow().balance())
                 .isEqualByComparingTo(results.get(0).equals("deposited") ? "15.00" : "10.00");
-        assertThat(service.list(OWNER).totalBalance()).isZero();
+        assertThat(service.list(OWNER, null).totalBalance()).isZero();
         assertThatThrownBy(() -> service.deposit(OWNER, id, BigDecimal.ONE))
                 .isInstanceOf(SavingsPotService.NotFoundException.class);
     }

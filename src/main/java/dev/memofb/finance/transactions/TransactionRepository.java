@@ -2,6 +2,7 @@ package dev.memofb.finance.transactions;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.*;
 import org.springframework.jdbc.core.*;
 import org.springframework.stereotype.Repository;
@@ -31,10 +32,15 @@ public class TransactionRepository {
     public Optional<TransactionResponse> activeExpense(String owner,long occurrenceId) {
         return jdbc.query(SELECT+" AND t.recurring_occurrence_id=? AND t.amount<0",ROW,owner,occurrenceId).stream().findFirst();
     }
-    PageResponse<TransactionResponse> list(String owner,ListQuery query,Long categoryId) {
+    PageResponse<TransactionResponse> list(String owner, ListQuery query, Long categoryId, YearMonth month) {
         var filter=" AND t.name ILIKE ? ESCAPE '!'";
         var args=new ArrayList<Object>(List.of(owner,query.pattern()));
         if(categoryId!=null) { filter+=" AND t.category_id=?";args.add(categoryId); }
+        if (month != null) {
+            filter += " AND t.transaction_date >= ? AND t.transaction_date < ?";
+            args.add(month.atDay(1));
+            args.add(month.plusMonths(1).atDay(1));
+        }
         var total=jdbc.queryForObject("SELECT count(*) FROM effective_transactions t WHERE t.username=?"+filter,
                 Long.class,args.toArray());
         args.add(query.size());args.add(query.offset());

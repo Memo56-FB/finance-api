@@ -2,6 +2,7 @@ package dev.memofb.finance.savings;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -35,6 +36,16 @@ public class SavingsPotRepository {
     List<SavingsPot> listActive(String username) {
         return jdbc.query("SELECT " + COLUMNS + " FROM savings_pots WHERE username = ? AND deleted_at IS NULL ORDER BY id",
                 ROW, username);
+    }
+
+    List<SavingsPot> balancesBefore(String username, LocalDate endExclusive) {
+        return jdbc.query("""
+                SELECT p.id, p.name, p.target_amount, sum(t.amount) AS balance, p.color, p.deleted_at
+                FROM savings_pots p
+                JOIN transactions t ON t.username = p.username AND t.pot_id = p.id
+                WHERE p.username = ? AND p.deleted_at IS NULL AND t.deleted_at IS NULL AND t.transaction_date < ?
+                GROUP BY p.id ORDER BY p.id
+                """, ROW, username, endExclusive);
     }
 
     Optional<SavingsPot> findActive(String username, long id) {

@@ -291,6 +291,23 @@ lo dejaría negativo o fuera de rango. Borrar/restaurar el apartado oculta/react
 crear un gasto compensatorio ni duplicarlos. Un apartado con abono de 100 en un corte anterior y retiro
 de 20 en el actual conserva balance 80, mientras el resumen actual muestra neto -20.
 
+### Histórico mensual del overview
+
+El calendario del overview puede enviar `month=YYYY-MM` en sus cinco consultas GET. Por ejemplo,
+`/api/financial-summary?month=2024-02` devuelve los ingresos, gastos y saldo neto del 1 al 29 de febrero.
+Al quitar el mes, el resumen vuelve al corte personal actual.
+
+| Ruta con `?month=YYYY-MM` | Qué muestra |
+| --- | --- |
+| `/api/financial-summary` | Resultados del mes calendario completo. Un mes vacío devuelve ceros. |
+| `/api/transactions` | Movimientos del mes. El filtro se aplica antes del orden y la paginación. |
+| `/api/savings-pots` | Saldo acumulado por apartado activo hasta el cierre del mes, para apartados con movimientos efectivos hasta esa fecha. |
+| `/api/budgets` | Gasto de ese mes con los límites vigentes de los presupuestos. |
+| `/api/recurring-payments/summary` | Resumen de pagos del mes de vencimiento. |
+
+Las correcciones posteriores se reflejan al volver a consultar. El mes solo viaja en la petición
+y los enlaces a las demás pantallas conservan sus propios filtros.
+
 ### Presupuestos mensuales
 
 POST/PUT recibe `{"categoryId":1,"spendingLimit":100.00,"color":"#AABBCC"}`. Existe como máximo un
