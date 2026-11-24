@@ -25,7 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {"spring.datasource.password=integration-test-only", "finance.recurring-payments.scheduling-enabled=false",
         "finance.bootstrap.username=swagger", "finance.bootstrap.password=swagger-test-passphrase"})
-@ActiveProfiles("local")
+@ActiveProfiles({"local", "test"})
 @AutoConfigureMockMvc
 @Testcontainers
 class LocalSwaggerTest {

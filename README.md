@@ -137,8 +137,10 @@ const me = await fetch(`${api}/api/auth/me`, { credentials: 'include' })
 console.log(await me.json())
 ```
 
-Las sesiones viven en memoria y se pierden al reiniciar. Antes de publicar la API, configura límites de intentos
-de login y registro en el proxy; para múltiples instancias, usa un almacenamiento compartido de sesiones.
+Flyway V8 crea las tablas de Spring Session. PostgreSQL conserva las sesiones autenticadas entre instancias y
+reinicios de la API. La sesión autenticada no caduca por inactividad y el cierre de sesión la elimina. Al
+desplegar V8 por primera vez, las sesiones anteriores, que estaban en memoria, requieren iniciar sesión de nuevo.
+Antes de publicar la API, configura límites de intentos de login y registro en el proxy.
 
 ## Apartados de ahorro
 
