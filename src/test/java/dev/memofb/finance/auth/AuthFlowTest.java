@@ -274,6 +274,7 @@ class AuthFlowTest {
                 .andExpect(status().isNoContent())
                 .andExpect(header().doesNotExist(HttpHeaders.LOCATION));
         assertThat(session.getId()).isNotEqualTo(initialSessionId);
+        assertThat(session.getMaxInactiveInterval()).isNegative();
 
         mvc.perform(get("/api/auth/me").session(session))
                 .andExpect(status().isOk())

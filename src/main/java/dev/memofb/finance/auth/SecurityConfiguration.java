@@ -55,7 +55,10 @@ public class SecurityConfiguration {
                 .formLogin(form -> form
                         .loginPage("/api/auth/login")
                         .loginProcessingUrl("/api/auth/login")
-                        .successHandler((request, response, authentication) -> response.setStatus(204))
+                        .successHandler((request, response, authentication) -> {
+                            request.getSession().setMaxInactiveInterval(-1);
+                            response.setStatus(204);
+                        })
                         .failureHandler((request, response, exception) -> response.setStatus(401))
                         .permitAll())
                 .logout(logout -> logout
