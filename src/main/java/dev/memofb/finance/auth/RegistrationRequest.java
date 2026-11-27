@@ -4,14 +4,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+@JsonIgnoreProperties("name")
 record RegistrationRequest(
-        @NotBlank(message = "El nombre es obligatorio")
-        @Size(max = 100, message = "El nombre debe tener como máximo 100 caracteres") String name,
         @NotBlank(message = "El nombre de usuario es obligatorio")
         @Pattern(regexp = USERNAME_PATTERN, message = "Usa letras, números, puntos, guiones o guiones bajos")
         @Size(max = 254, message = "El nombre de usuario debe tener como máximo 254 caracteres") String username,
@@ -21,7 +21,6 @@ record RegistrationRequest(
     static final String USERNAME_PATTERN = "[a-z0-9._-]+";
 
     RegistrationRequest {
-        name = name == null ? null : name.strip();
         username = normalizeUsername(username);
     }
 

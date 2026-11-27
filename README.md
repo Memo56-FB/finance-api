@@ -26,7 +26,7 @@ docker compose up -d --wait
 La API escucha en `http://localhost:8080`. Flyway prepara la tabla `users` al iniciar.
 La migración V2 agrega el nombre del usuario y V3 elimina la antigua tabla `authorities`, conservando
 las cuentas y sus credenciales. La autenticación no usa roles ni permisos. Las cuentas anteriores y el usuario inicial local pueden
-conservar el nombre vacío (`NULL`); el endpoint de registro exige un nombre para las cuentas nuevas.
+conservar el nombre vacío (`NULL`). Las cuentas nuevas se crean con el nombre en `NULL`.
 El perfil `local` crea el primer usuario si todavía no existe; reiniciar no cambia su contraseña.
 En un entorno local existente, cambia `FINANCE_BOOTSTRAP_EMAIL` por `FINANCE_BOOTSTRAP_USERNAME` en
 `.env` y usa el nombre migrado. Flyway V7 toma la parte anterior a `@`, sustituye cada grupo de caracteres
@@ -66,8 +66,8 @@ CSRF y la autenticación de los servicios siguen activos.
 
 ## Contrato de autenticación
 
-El registro requiere `name`, `username` y `password`. El nombre se recorta en sus extremos y debe tener de 1 a 100
-caracteres; conserva acentos y espacios interiores. El nombre de usuario es único, se recorta y se guarda en minúsculas.
+El registro requiere `username` y `password`. Si un cliente anterior envía `name`, la API lo ignora.
+El nombre de usuario es único, se recorta y se guarda en minúsculas.
 Admite de 1 a 254 caracteres ASCII entre letras, números, puntos, guiones y guiones bajos. La contraseña requiere al menos **8
 caracteres** y como máximo **72 bytes UTF-8**; no se recorta ni se exigen reglas adicionales de composición.
 Las longitudes de texto siguen las unidades UTF-16 de Java; el límite de la contraseña se mide en bytes aparte.
@@ -76,7 +76,7 @@ El mínimo de 12 caracteres descrito para desarrollo local corresponde únicamen
 | Método | Endpoint | Resultado |
 | --- | --- | --- |
 | GET | `/api/auth/csrf` | `200` con `token`, `headerName` y `parameterName`; disponible antes del login. |
-| POST | `/api/auth/register` | JSON con `name`, `username` y `password`; `201` con `name` y `username` normalizados. No inicia sesión. |
+| POST | `/api/auth/register` | JSON con `username` y `password`. Devuelve `201` con `username` normalizado. No inicia sesión. |
 | POST | `/api/auth/login` | Formulario con `username` y `password`; `204` si son correctos, `401` si no. |
 | GET | `/api/auth/me` | `200` con `{ "username": "..." }`; `401` sin sesión. |
 | POST | `/api/auth/logout` | Invalida la sesión y elimina la cookie; responde `204`. |
@@ -86,17 +86,16 @@ Un token ausente o inválido devuelve `403`. Los errores de autenticación no de
 Login usa `application/x-www-form-urlencoded`; las respuestas de login y logout no tienen cuerpo ni redirección.
 
 Registro usa `application/json`. Una respuesta correcta es
-`{ "name": "María José", "username": "maria" }`, sin contraseña ni hash.
+`{ "username": "maria" }`, sin contraseña ni hash.
 Los datos inválidos o un cuerpo JSON ilegible devuelven `400`; un nombre de usuario ya registrado, incluso de una cuenta
 deshabilitada, devuelve `409` y conserva la cuenta existente. Ambos usan `application/problem+json` con `status`,
 `title` y `detail`. Los errores de validación incluyen `errors`, por ejemplo
 `[{ "field": "password", "message": "La contraseña debe tener al menos 8 caracteres" }]`, sin repetir el valor
-rechazado. El registro también devuelve `403` si falta CSRF o es inválido. La cuenta y su nombre se
-guardan con un único `INSERT` atómico; la contraseña se guarda con el codificador BCrypt existente.
+rechazado. El registro también devuelve `403` si falta CSRF o es inválido. La cuenta se
+guarda con un único `INSERT` atómico; la contraseña se guarda con el codificador BCrypt existente.
 
 El frontend debe usar `credentials: 'include'` en todas las llamadas y obtener un nuevo token CSRF después del
 login o logout. CORS permite únicamente `http://localhost:3000`; usa `FINANCE_FRONTEND_ORIGIN` si cambia ese origen.
-La integración con el formulario de `financeFront` queda para el siguiente cambio.
 
 Ejemplo de CSRF → registro → login para ejecutar con un nombre de usuario nuevo en la consola del navegador,
 desde `http://localhost:3000`:
@@ -107,7 +106,6 @@ const csrf = await fetch(`${api}/api/auth/csrf`, {
   credentials: 'include',
 }).then(response => response.json())
 
-const name = prompt('Nombre')
 const username = prompt('Nombre de usuario')
 const password = prompt('Contraseña')
 const registration = await fetch(`${api}/api/auth/register`, {
@@ -117,7 +115,7 @@ const registration = await fetch(`${api}/api/auth/register`, {
     'Content-Type': 'application/json',
     [csrf.headerName]: csrf.token,
   },
-  body: JSON.stringify({ name, username, password }),
+  body: JSON.stringify({ username, password }),
 })
 if (!registration.ok) throw new Error(`Registro rechazado: ${registration.status}`)
 console.log(registration.status, await registration.json())

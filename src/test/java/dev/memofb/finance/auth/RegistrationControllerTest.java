@@ -48,21 +48,24 @@ class RegistrationControllerTest {
     @MockitoBean
     private UserDetailsService users;
 
-    @Test
-    void registersAnAnonymousUserAndReturnsOnlyNameAndUsername() throws Exception {
-        given(registration.register(any())).willReturn(new RegistrationService.RegisteredUser("María", "maria"));
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void registersAnAnonymousUserAndReturnsOnlyUsername(boolean legacy) throws Exception {
+        given(registration.register(any())).willReturn(new RegistrationService.RegisteredUser("maria"));
 
+        var body = new HashMap<>(Map.of("username", "  MARIA  ", "password", "abcdefgh"));
+        if (legacy) {
+            body.put("name", "M".repeat(101));
+        }
         var result = mvc.perform(post("/api/auth/register").with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json.writeValueAsString(Map.of(
-                                "name", "  María  ", "username", "  MARIA  ", "password", "abcdefgh"))))
+                        .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(body)))
                 .andExpect(status().isCreated())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(content().json("{\"name\":\"María\",\"username\":\"maria\"}"))
+                .andExpect(content().json("{\"username\":\"maria\"}"))
                 .andExpect(header().doesNotExist(HttpHeaders.LOCATION))
                 .andReturn();
-        assertThat(json.readTree(result.getResponse().getContentAsString()).size()).isEqualTo(2);
-        verify(registration).register(new RegistrationRequest("María", "maria", "abcdefgh"));
+        assertThat(json.readTree(result.getResponse().getContentAsString()).size()).isEqualTo(1);
+        verify(registration).register(new RegistrationRequest("maria", "abcdefgh"));
     }
 
     @ParameterizedTest
@@ -86,9 +89,9 @@ class RegistrationControllerTest {
     }
 
     static Stream<Arguments> invalidBodies() {
-        var absent = Stream.of("name", "username", "password").flatMap(field -> Stream.of("omitted", "null", "blank")
+        var absent = Stream.of("username", "password").flatMap(field -> Stream.of("omitted", "null", "blank")
                 .map(kind -> {
-                    var body = new HashMap<>(Map.of("name", "María", "username", "maria", "password", "abcdefgh"));
+                    var body = new HashMap<>(Map.of("username", "maria", "password", "abcdefgh"));
                     if (kind.equals("omitted")) {
                         body.remove(field);
                     } else {
@@ -97,12 +100,11 @@ class RegistrationControllerTest {
                     return Arguments.of(field, body);
                 }));
         var invalid = Stream.of(
-                Arguments.of("username", Map.of("name", "María", "email", "old@example.com", "password", "abcdefgh")),
-                Arguments.of("name", Map.of("name", "M".repeat(101), "username", "maria", "password", "abcdefgh")),
-                Arguments.of("username", Map.of("name", "María", "username", "maria@example.com", "password", "abcdefgh")),
-                Arguments.of("password", Map.of("name", "María", "username", "maria", "password", "secret7")),
-                Arguments.of("password", Map.of("name", "María", "username", "maria", "password", "a".repeat(73))),
-                Arguments.of("password", Map.of("name", "María", "username", "maria", "password", "é".repeat(37))));
+                Arguments.of("username", Map.of("email", "old@example.com", "password", "abcdefgh")),
+                Arguments.of("username", Map.of("username", "maria@example.com", "password", "abcdefgh")),
+                Arguments.of("password", Map.of("username", "maria", "password", "secret7")),
+                Arguments.of("password", Map.of("username", "maria", "password", "a".repeat(73))),
+                Arguments.of("password", Map.of("username", "maria", "password", "é".repeat(37))));
         return Stream.concat(absent, invalid);
     }
 
@@ -125,7 +127,7 @@ class RegistrationControllerTest {
         given(registration.register(any())).willThrow(new RegistrationService.UsernameAlreadyRegisteredException());
         var result = mvc.perform(post("/api/auth/register").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json.writeValueAsString(Map.of("name", "María", "username", "maria", "password", "abcdefgh"))))
+                        .content(json.writeValueAsString(Map.of("username", "maria", "password", "abcdefgh"))))
                 .andExpect(status().isConflict())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(409))

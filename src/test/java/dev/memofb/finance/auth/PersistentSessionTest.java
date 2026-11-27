@@ -34,7 +34,7 @@ class PersistentSessionTest {
         String sessionCookie;
         try (var client = HttpClient.newHttpClient()) {
             try (var first = startApi()) {
-                first.getBean(RegistrationService.class).register(new RegistrationRequest("Memo", username, password));
+                first.getBean(RegistrationService.class).register(new RegistrationRequest(username, password));
                 var csrf = send(client, request(first, "csrf").GET());
                 assertThat(csrf.statusCode()).isEqualTo(200);
                 var anonymousCookie = sessionCookie(csrf);

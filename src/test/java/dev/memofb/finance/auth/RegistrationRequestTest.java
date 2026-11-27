@@ -31,14 +31,13 @@ class RegistrationRequestTest {
     }
 
     @Test
-    void normalizesNameAndUsernameButPreservesThePassword() {
-        var request = new RegistrationRequest("  María José O'Neill  ", "  MARIA  ", "  secret12  ");
+    void normalizesUsernameButPreservesThePassword() {
+        var request = new RegistrationRequest("  MARIA  ", "  secret12  ");
 
         assertThat(validator.validate(request)).isEmpty();
-        assertThat(request.name()).isEqualTo("María José O'Neill");
         assertThat(request.username()).isEqualTo("maria");
         assertThat(request.password()).isEqualTo("  secret12  ");
-        assertThat(request.toString()).doesNotContain(request.password(), request.username(), request.name());
+        assertThat(request.toString()).doesNotContain(request.password(), request.username());
     }
 
     @ParameterizedTest
@@ -49,9 +48,9 @@ class RegistrationRequestTest {
 
     static Stream<RegistrationRequest> validRequests() {
         return Stream.of(
-                new RegistrationRequest("M", "maria", "abcdefgh"),
-                new RegistrationRequest("M".repeat(100), "maria", "a".repeat(72)),
-                new RegistrationRequest("María", "a".repeat(254), "é".repeat(36)));
+                new RegistrationRequest("maria", "abcdefgh"),
+                new RegistrationRequest("maria", "a".repeat(72)),
+                new RegistrationRequest("a".repeat(254), "é".repeat(36)));
     }
 
     @ParameterizedTest
@@ -62,17 +61,14 @@ class RegistrationRequestTest {
     }
 
     static Stream<Arguments> invalidRequests() {
-        var blankValues = Stream.<String>of(null, "", " \t ");
-        var names = Stream.concat(blankValues, Stream.of("M".repeat(101)))
-                .map(name -> Arguments.of("name", new RegistrationRequest(name, "maria", "abcdefgh")));
         var usernames = Stream.of(null, "", " ", "maria@example.com", "maria@", "maria example.com", "a".repeat(255))
-                .map(username -> Arguments.of("username", new RegistrationRequest("María", username, "abcdefgh")));
+                .map(username -> Arguments.of("username", new RegistrationRequest(username, "abcdefgh")));
         var passwords = Stream.of(null, "", " ".repeat(8), "a".repeat(7), "a".repeat(73), "é".repeat(37))
                 .map(password -> Arguments.of(
                         password != null && password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72
                                 ? "passwordWithinByteLimit" : "password",
-                        new RegistrationRequest("María", "maria", password)));
-        return Stream.concat(Stream.concat(names, usernames), passwords);
+                        new RegistrationRequest("maria", password)));
+        return Stream.concat(usernames, passwords);
     }
 
 }

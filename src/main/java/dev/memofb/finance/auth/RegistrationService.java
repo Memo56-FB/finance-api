@@ -18,15 +18,15 @@ class RegistrationService {
     RegisteredUser register(RegistrationRequest request) {
         var hash = passwords.encode(request.password());
         try {
-            jdbc.update("INSERT INTO users (username, password, enabled, name) VALUES (?, ?, true, ?)",
-                    request.username(), hash, request.name());
+            jdbc.update("INSERT INTO users (username, password, enabled) VALUES (?, ?, true)",
+                    request.username(), hash);
         } catch (DuplicateKeyException exception) {
             throw new UsernameAlreadyRegisteredException();
         }
-        return new RegisteredUser(request.name(), request.username());
+        return new RegisteredUser(request.username());
     }
 
-    record RegisteredUser(String name, String username) {
+    record RegisteredUser(String username) {
     }
 
     static class UsernameAlreadyRegisteredException extends RuntimeException {

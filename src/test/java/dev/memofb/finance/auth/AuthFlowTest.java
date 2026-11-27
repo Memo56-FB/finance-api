@@ -85,12 +85,12 @@ class AuthFlowTest {
     }
 
     @Test
-    void persistsTheRegisteredUserWithNameAndHashWithoutRoles() {
-        var created = registration.register(new RegistrationRequest("  María José  ", "  MARIA  ", "abcdefgh"));
+    void persistsTheRegisteredUserWithHashWithoutRoles() {
+        var created = registration.register(new RegistrationRequest("  MARIA  ", "abcdefgh"));
 
-        assertThat(created).isEqualTo(new RegistrationService.RegisteredUser("María José", REGISTER_USERNAME));
+        assertThat(created).isEqualTo(new RegistrationService.RegisteredUser(REGISTER_USERNAME));
         var user = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_USERNAME);
-        assertThat(user).containsEntry("name", "María José").containsEntry("enabled", true);
+        assertThat(user).containsEntry("name", null).containsEntry("enabled", true);
         assertThat(user.get("password")).isNotEqualTo("abcdefgh");
         assertThat(passwords.matches("abcdefgh", (String) user.get("password"))).isTrue();
         assertThat(users.loadUserByUsername(REGISTER_USERNAME).getAuthorities()).isEmpty();
@@ -121,12 +121,13 @@ class AuthFlowTest {
 
     @Test
     void duplicatesNeverOverwriteExistingOrDisabledAccounts() {
-        registration.register(new RegistrationRequest("María", REGISTER_USERNAME, "abcdefgh"));
+        registration.register(new RegistrationRequest(REGISTER_USERNAME, "abcdefgh"));
+        jdbc.update("UPDATE users SET name = ? WHERE username = ?", "Nombre histórico", REGISTER_USERNAME);
         for (boolean enabled : new boolean[] {true, false}) {
             jdbc.update("UPDATE users SET enabled = ? WHERE username = ?", enabled, REGISTER_USERNAME);
             var before = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_USERNAME);
             for (String username : new String[] {REGISTER_USERNAME, "  MARIA  "}) {
-                assertThatThrownBy(() -> registration.register(new RegistrationRequest("Otra", username, "new-password")))
+                assertThatThrownBy(() -> registration.register(new RegistrationRequest(username, "new-password")))
                         .isInstanceOf(RegistrationService.UsernameAlreadyRegisteredException.class);
                 assertThat(jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_USERNAME)).isEqualTo(before);
             }
@@ -134,16 +135,16 @@ class AuthFlowTest {
     }
 
     @Test
-    void leavesNoAccountIfSavingTheNameFails() {
-        jdbc.execute("ALTER TABLE users ADD CONSTRAINT test_name_failure CHECK (name IS DISTINCT FROM '__fail__')");
+    void leavesNoAccountIfSavingFails() {
+        jdbc.execute("ALTER TABLE users ADD CONSTRAINT test_registration_failure CHECK (username <> 'maria')");
         try {
-            assertThatThrownBy(() -> registration.register(new RegistrationRequest("__fail__", REGISTER_USERNAME, "abcdefgh")))
+            assertThatThrownBy(() -> registration.register(new RegistrationRequest(REGISTER_USERNAME, "abcdefgh")))
                     .isInstanceOf(DataIntegrityViolationException.class)
                     .isNotInstanceOf(RegistrationService.UsernameAlreadyRegisteredException.class);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE username = ?",
                     Long.class, REGISTER_USERNAME)).isZero();
         } finally {
-            jdbc.execute("ALTER TABLE users DROP CONSTRAINT test_name_failure");
+            jdbc.execute("ALTER TABLE users DROP CONSTRAINT test_registration_failure");
         }
     }
 
@@ -152,11 +153,11 @@ class AuthFlowTest {
         var browser = anonymousSession();
         register(browser, "  María José O'Neill  ", "  MARIA  ", "abcdefgh")
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.name").value("María José O'Neill"))
+                .andExpect(jsonPath("$.name").doesNotExist())
                 .andExpect(jsonPath("$.username").value(REGISTER_USERNAME))
                 .andExpect(jsonPath("$.password").doesNotExist());
         assertThat(jdbc.queryForObject("SELECT name FROM users WHERE username = ?", String.class, REGISTER_USERNAME))
-                .isEqualTo("María José O'Neill");
+                .isNull();
         mvc.perform(get("/api/auth/me").session(browser.session())).andExpect(status().isUnauthorized());
 
         mvc.perform(post("/api/auth/login").session(browser.session())
@@ -239,7 +240,7 @@ class AuthFlowTest {
             assertThat(new int[] {firstStatus, secondStatus}).containsExactlyInAnyOrder(201, 409);
 
             var account = jdbc.queryForMap("SELECT * FROM users WHERE username = ?", REGISTER_USERNAME);
-            assertThat(account).containsEntry("name", firstStatus == 201 ? "Primera" : "Segunda")
+            assertThat(account).containsEntry("name", null)
                     .containsEntry("enabled", true);
             var hash = (String) account.get("password");
             assertThat(passwords.matches(firstStatus == 201 ? "first-password" : "second-password", hash)).isTrue();
